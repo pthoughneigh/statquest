@@ -10,7 +10,7 @@ wheels/
 .venv
 
 # data folder
-data/
+data/*
 !data/.gitkeep
 
 # PyCharm
