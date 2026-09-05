@@ -123,11 +123,110 @@ Deciding without measuring is guessing — which is why this stays open.
 ---
 
 ## 0.4 — Where the holes sit
-*in progress*
+*2026-09-05*
 
-> The question is not how many holes there are, but **where they sit**.
-> Look at the `phytophthora-rot` and `cyst-nematode` rows.
->
-> Before counting anything — write down what you expect to see.
-> Then count. The gap between those two is the only entry here that's worth
-> anything.
+The question was not how many holes there are, but **where they sit**. Answered
+by reading the raw file, before writing any code.
+
+### What the rows show
+
+**`cyst-nematode` — the pattern is a constant.** All six rows have their holes
+in exactly the same 24 columns. The missingness does not vary by case; it varies
+by *disease*.
+
+**`phytophthora-rot` — the pattern is bimodal.** 24 rows are sparse, 16 are
+complete. So within a single disease there are two groups of cases, and whatever
+separates them is not the disease.
+
+**Between the two diseases the patterns differ.** Some columns are missing in
+both, others in only one.
+
+### `cyst-nematode`, column by column
+
+Present (11):
+```
+date, crop_hist, area_damaged, plant_growth, leaves,
+stem, fruit_pods, seed, mold_growth, seed_size, roots
+```
+
+Missing (24): everything else, including `leafspots_halo`, `leafspots_marg`,
+`leafspot_size`, `canker_lesion`, `int_discolor`, `external_decay`, `mycelium`,
+`fruiting_bodies`.
+
+Sorted by what a person in the field had to do to record it:
+
+| what was recorded | what it took |
+|---|---|
+| `date`, `crop_hist`, `area_damaged` | known before approaching the plant |
+| `plant_growth`, `leaves`, `stem` | a look from a distance |
+| `roots` | pull the plant up |
+| `fruit_pods`, `seed`, `mold_growth`, `seed_size` | open a pod |
+
+Everything missing is a **fine-grained observation**: the colour of a spot's
+margin, whether a lesion is under or over one-eighth of an inch, the colour of
+internal stem discolouration — which requires cutting the stem open.
+
+### Interpretation
+
+**It wasn't knowledge that was missing, it was protocol.**
+
+Somebody pulled up a `cyst-nematode` plant, saw cysts on the root, wrote it down
+and moved on. Why measure leaf spot size when the diagnosis was already settled
+underground? For `phytophthora-rot`, 16 cases went through a thorough
+examination and 24 through a quick one — probably different people, different
+seasons, or a different recording form.
+
+**The missingness pattern records how carefully someone looked, and how
+carefully they looked depended on what they already suspected.** The diagnosis
+influenced which data got recorded — not the other way around.
+
+The statistical name is **MNAR**: missing not at random, and dependent on the
+value that would have been measured. The worst of the three kinds, because
+imputation cannot fix it. Imputation assumes the hole carries no information.
+Here it carries a great deal.
+
+### Consequence — this is leakage
+
+A classifier that looks **only at which cells are empty**, at no values at all,
+would score well on this dataset. It would know nothing about soybeans.
+
+This is where the two projects collide. A farmer in the fitomedicina system will
+answer three of eight questions — not because the disease is like that, but
+because they can't be bothered to type. **There, the missingness pattern is
+noise. Here, it is signal.** A model trained here would look for a pattern that
+does not exist in the field.
+
+### The recurring bug, and the lesson
+
+My first attempt at listing the missing columns came out **shifted by exactly one
+position** — it reported `leaves` as missing, which is impossible. The cause: the
+mask was computed on a frame without `class`, then applied to a name list that
+included it. 35 booleans, 36 names.
+
+This is the same off-by-one the `leaves` check was introduced to catch in 0.2 —
+and it came back, because that check ran once at load time and nothing after it
+was guarded.
+
+**A check that runs once does not protect the code written after it.** Whenever
+columns get manipulated, `leaves` must still have zero holes. It costs one line
+and belongs at the end of every such operation.
+
+### Open
+
+What to do about the leakage, resolved in **4.5**:
+
+- **(a)** ignore it — the model uses the pattern, the paper result looks good,
+  the field result does not
+- **(b)** drop the 24 columns that are empty for whole classes — loses genuine
+  symptoms because of one disease
+- **(c)** keep everything, but measure twice: once as-is, once with the
+  missingness pattern randomly shuffled across rows
+
+**(c) is not a third opinion, it is a measurement.** The gap between the two runs
+is how much of the score comes from leakage. A number, not a judgement — which
+is why it waits until the tools exist.
+
+---
+
+## 0.5 — Linear algebra in NumPy
+*pending*

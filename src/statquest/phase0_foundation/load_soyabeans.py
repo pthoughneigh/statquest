@@ -7,11 +7,14 @@ soyabeans_path = "data/raw/soybean-large.data"
 
 path = Path(__file__).parents[3] / soyabeans_path
 
-try:
-    data = pd.read_csv(path, header=None, na_values="?")
-except FileNotFoundError:
-    print(f"File {soyabeans_path} not found")
-    sys.exit()
+def load_soyabeans_csv() -> pd.DataFrame:
+    try:
+        data = pd.read_csv(path, header=None, na_values="?")
+        data.columns = names
+        return data
+    except FileNotFoundError:
+        print(f"File {soyabeans_path} not found")
+        sys.exit()
 
 names = [
     "class",
@@ -130,11 +133,11 @@ BINARY = [
 # Kept in NOMINAL for now;
 DNA_CONTAMINATED = ["leafspots_marg", "leafspot_size", "fruit_pods", "fruit_spots"]
 
-data.columns = names
+soyabeans_data = load_soyabeans_csv()
 
-print(f"Soyabeans dataset - Shape: {data.shape}")
-print(f"Soyabeans dataset - Number of unique 'class' values: {data['class'].nunique()}")
-print(f"Soyabeans dataset - Number of 'na' values: {data.isna().sum().sum()}")
+print(f"Soyabeans dataset - Shape: {soyabeans_data.shape}")
+print(f"Soyabeans dataset - Number of unique 'class' values: {soyabeans_data['class'].nunique()}")
+print(f"Soyabeans dataset - Number of 'na' values: {soyabeans_data.isna().sum().sum()}")
 print(
-    f"Soyabeans dataset - Number of 'na' values in 'leaves' column: {data['leaves'].isna().sum()}"
+    f"Soyabeans dataset - Number of 'na' values in 'leaves' column: {soyabeans_data['leaves'].isna().sum()}"
 )

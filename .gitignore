@@ -15,3 +15,6 @@ data/*
 
 # PyCharm
 .idea/
+
+# Whiteboard
+src/z.py
