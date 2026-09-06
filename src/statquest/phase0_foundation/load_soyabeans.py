@@ -7,6 +7,7 @@ soyabeans_path = "data/raw/soybean-large.data"
 
 path = Path(__file__).parents[3] / soyabeans_path
 
+
 def load_soyabeans_csv() -> pd.DataFrame:
     try:
         data = pd.read_csv(path, header=None, na_values="?")
@@ -15,6 +16,7 @@ def load_soyabeans_csv() -> pd.DataFrame:
     except FileNotFoundError:
         print(f"File {soyabeans_path} not found")
         sys.exit()
+
 
 names = [
     "class",
@@ -137,8 +139,12 @@ if __name__ == "__main__":
     soyabeans_data = load_soyabeans_csv()
 
     print(f"Soyabeans dataset - Shape: {soyabeans_data.shape}")
-    print(f"Soyabeans dataset - Number of unique 'class' values: {soyabeans_data['class'].nunique()}")
-    print(f"Soyabeans dataset - Number of 'na' values: {soyabeans_data.isna().sum().sum()}")
+    print(
+        f"Soyabeans dataset - Number of unique 'class' values: {soyabeans_data['class'].nunique()}"
+    )
+    print(
+        f"Soyabeans dataset - Number of 'na' values: {soyabeans_data.isna().sum().sum()}"
+    )
     print(
         f"Soyabeans dataset - Number of 'na' values in 'leaves' column: {soyabeans_data['leaves'].isna().sum()}"
     )
