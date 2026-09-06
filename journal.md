@@ -229,4 +229,39 @@ is why it waits until the tools exist.
 ---
 
 ## 0.5 — Linear algebra in NumPy
-*pending*
+*2026-09-06*
+
+**Cut, deliberately.** The step exists so that `A @ x` stops being magic. I had
+already worked through NumPy and pandas, so hand-rolling dot products and matrix
+multiplication was transcription, not learning. Written and then deleted — I
+don't want scaffolding in the repository that no later step imports.
+
+Counterargument I rejected: shape discipline is easier to acquire by writing the
+loops than by debugging a `(307, 35)` @ `(34,)` later. Accepted the risk.
+
+### What moved, rather than disappeared
+
+**`solve` vs `inv` → 2.3.** The one part of 0.5 that NumPy fluency does not give
+you; it is numerical analysis, not syntax. It belongs with the normal equations.
+
+**0.6 synthetic generator → 2.1, 0.7 oracle → 6.1.** Same rule as `uv add`:
+build the tool when a step needs it, so the history shows why it arrived.
+
+### The one thing worth keeping from it
+
+**Never compare floats with `==`.** Three ways of summing the same 1000 products
+give three different results:
+
++= in a loop 247.75317023267948
+math.fsum 247.7531702326793
+np.dot 247.75317023267928
+
+`math.fsum` tracks partial sums and returns the correctly rounded value, so a
+plain Python loop can be *more* accurate than `np.dot`, which uses pairwise
+summation. Neither is "the" answer — they are different summation algorithms.
+Every comparison against sklearn from here on uses `isclose`, never `==`.
+
+Related, same cause: `cos([1,1,1], [1,1,1])` comes out as `1.0000000000000002`
+because `sqrt(3) * sqrt(3) != 3.0`, and `acos` raises on that. It does *not*
+raise for `[1,2,3]` vs `[2,4,6]`, which returns exactly `1.0` — a failure that
+appears on some inputs and not others. Clamp to `[-1, 1]` before `acos`.

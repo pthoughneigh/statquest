@@ -133,11 +133,12 @@ BINARY = [
 # Kept in NOMINAL for now;
 DNA_CONTAMINATED = ["leafspots_marg", "leafspot_size", "fruit_pods", "fruit_spots"]
 
-soyabeans_data = load_soyabeans_csv()
+if __name__ == "__main__":
+    soyabeans_data = load_soyabeans_csv()
 
-print(f"Soyabeans dataset - Shape: {soyabeans_data.shape}")
-print(f"Soyabeans dataset - Number of unique 'class' values: {soyabeans_data['class'].nunique()}")
-print(f"Soyabeans dataset - Number of 'na' values: {soyabeans_data.isna().sum().sum()}")
-print(
-    f"Soyabeans dataset - Number of 'na' values in 'leaves' column: {soyabeans_data['leaves'].isna().sum()}"
-)
+    print(f"Soyabeans dataset - Shape: {soyabeans_data.shape}")
+    print(f"Soyabeans dataset - Number of unique 'class' values: {soyabeans_data['class'].nunique()}")
+    print(f"Soyabeans dataset - Number of 'na' values: {soyabeans_data.isna().sum().sum()}")
+    print(
+        f"Soyabeans dataset - Number of 'na' values in 'leaves' column: {soyabeans_data['leaves'].isna().sum()}"
+    )
