@@ -14,7 +14,7 @@ def euclidean_distance(a: Vector, b: Vector) -> float:
     return float(np.sqrt(np.sum((a - b) ** 2)))
 
 
-def hamming_distance(a: Vector, b: Vector) -> int:
+def hamming_distance(a: Vector, b: Vector) -> float:
     return (a != b).sum()
 
 
@@ -22,27 +22,23 @@ def manhattan_distance(a: Vector, b: Vector) -> float:
     return np.sum(np.abs(a - b))
 
 
-def gower(data_frame: pd.DataFrame, a: Vector, b: Vector):
+def gower(data_frame: pd.DataFrame, a: Vector, b: Vector) -> float:
     score, n = 0.0, 0
-    nominal, ordinal, rest = [], [], []
     for i, col in enumerate(data_frame.columns):
         x, y = a[i], b[i]
         if pd.isna(x) or pd.isna(y):
             continue
         if col in NOMINAL:
-            nominal.append(col)
             score += 0.0 if x == y else 1.0
         elif col in ORDINAL:
-            ordinal.append(col)
             rng = data_frame[col].max() - data_frame[col].min()
             if rng == 0:
                 continue
             score += abs(x - y) / rng
         else:
-            rest.append(col)
             continue
         n += 1
-    return score / n if n else np.nan, nominal, ordinal, rest, n
+    return score / n if n else np.nan
 
 
 if __name__ == "__main__":
@@ -71,9 +67,4 @@ if __name__ == "__main__":
     )
 
     print()
-    score, nominal, ordinal, rest, n = gower(data, r1, r2)
-    print(f"Distance gower: {score}")
-    print(f"Nominal in gower: {nominal}")
-    print(f"Ordinal in gower: {ordinal}")
-    print(f"Rest in gower: {rest}")
-    print(f"Number of columns: {n}")
+    print(f"Distance gower: {gower(data, r1, r2)}")
