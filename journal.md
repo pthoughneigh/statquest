@@ -424,3 +424,60 @@ them nominal. **Decided in 4.5.**
 `data_frame[col].max()` inside the loop, scanning all 307 rows per column per
 pair. Fine for single pairs. In 1.3 an all-pairs matrix is ~94k calls, and
 that is where ranges get hoisted out and the function gets vectorised.
+
+
+## 1.3 — KNN
+*2026-09-13*
+
+### `make_gower` — a closure, and a test that cannot fail
+
+`gower` took three arguments where the other three distances take two, so it
+could not be passed to `knn` as a `Callable[[Vector, Vector], float]`.
+Loosening the annotation was rejected: it hides the mismatch until runtime and
+forces `knn` to know there are two kinds of distance function. Instead the
+frame is captured and only two arguments remain visible from outside.
+
+The same move clears the performance item left open in 1.2. Ordinal ranges are
+computed once, for the nine `ORDINAL` columns only — the other 26 never need a
+range, because a nominal column contributes 0 or 1 regardless of how many
+levels it has. Previously `max` and `min` rescanned all 307 rows per ordinal
+column per call; the all-pairs matrix 1.3 needs is 307×306/2 ≈ 47,000 pairs.
+
+The inner function still needs one thing from the frame: `columns`. Values are
+read positionally as `a[i]`, `b[i]` while the column type is looked up by name,
+so something has to bridge the two — bare arrays carry no names. Capturing
+`columns` into a local rather than holding the frame freezes it in the same
+instant as the ranges. The frame is captured by reference, the ranges by value;
+mutate the frame afterwards and the names shift while the ranges do not, and
+the function starts lying quietly.
+
+**Prediction, before running: bit-identical, not merely close.** Correct. The
+same values in the same operations in the same order — only *when* `max` and
+`min` are evaluated changed, not *what* they return. This is one of the few
+places `==` is defensible; had the last digits been allowed to move, this would
+have needed `isclose`, which would have been an admission that the refactor was
+not clean. The one new line that is not purely a change of timing is the
+`float()` cast around the range. It moves nothing on this data — pandas already
+returns `np.float64` after `na_values="?"` — but it is the only candidate to
+shift something later, on an integer column with no NaN.
+
+### The test that cannot fail
+
+Asked which of the two reference pairs could not detect a broken
+`ordinal_ranges`, the answer came back as 1–301 — pair right, reason wrong.
+NaN was the first explanation, but NaN only explains why 11 of 35 columns are
+compared. Three ordinal columns cleared the NaN filter, reached
+`ordinal_ranges[col]`, and executed the division.
+
+They contributed nothing because `date`, `crop_hist` and `seed_size` hold
+identical values in rows 1 and 301, recorded in 1.2. `abs(x - y)` is zero three
+times, and zero divided by anything is zero. `rng` could be 6, 1 or 1000 and
+`score` would not move; `n` still reaches 11 and the result is still 6/11.
+
+**A test whose correct value does not depend on the thing it measures is not a
+test.** Third instance of the same mechanism, and the first where it fails:
+`leaves` in 0.2 worked because it is the one column that can never be NaN;
+`mask.sum()` in 1.2 worked because 0.4 had already fixed the number at 11.
+`6/11` passes identically with correct and with corrupted ranges. Pair 1–175 is
+the only real check — it disagrees in ordinal columns too, so the ranges enter
+the sum. Both pairs belong in `__main__`: one covers 11 columns of 35.

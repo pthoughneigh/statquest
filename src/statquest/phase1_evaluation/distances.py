@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import numpy as np
 import pandas as pd
 
@@ -22,30 +24,37 @@ def manhattan_distance(a: Vector, b: Vector) -> float:
     return np.sum(np.abs(a - b))
 
 
-def gower(data_frame: pd.DataFrame, a: Vector, b: Vector) -> float:
-    score, n = 0.0, 0
-    for i, col in enumerate(data_frame.columns):
-        x, y = a[i], b[i]
-        if pd.isna(x) or pd.isna(y):
-            continue
-        if col in NOMINAL:
-            score += 0.0 if x == y else 1.0
-        elif col in ORDINAL:
-            rng = data_frame[col].max() - data_frame[col].min()
-            if rng == 0:
+def make_gower(data_frame: pd.DataFrame) -> Callable[[Vector, Vector], float]:
+    data_frame_columns = data_frame.columns
+
+    ordinal_ranges = {c: data_frame[c].max() - data_frame[c].min() for c in ORDINAL}
+
+    def gower(a: Vector, b: Vector) -> float:
+        score, n = 0.0, 0
+        for i, col in enumerate(data_frame_columns):
+            x, y = a[i], b[i]
+            if pd.isna(x) or pd.isna(y):
                 continue
-            score += abs(x - y) / rng
-        else:
-            continue
-        n += 1
-    return score / n if n else np.nan
+            if col in NOMINAL:
+                score += 0.0 if x == y else 1.0
+            elif col in ORDINAL:
+                rng = ordinal_ranges[col]
+                if rng == 0:
+                    continue
+                score += abs(x - y) / rng
+            else:
+                continue
+            n += 1
+        return score / n if n else np.nan
+
+    return gower
 
 
 if __name__ == "__main__":
     data = load_soyabeans_csv().drop("class", axis=1)
 
     r1 = np.asarray(data.iloc[1], dtype=float)
-    r2 = np.asarray(data.iloc[301], dtype=float)
+    r2 = np.asarray(data.iloc[175], dtype=float)
 
     mask = ~(np.isnan(r1) | np.isnan(r2))
 
@@ -67,4 +76,4 @@ if __name__ == "__main__":
     )
 
     print()
-    print(f"Distance gower: {gower(data, r1, r2)}")
+    print(f"Distance gower: {make_gower(data)(r1, r2)}")
