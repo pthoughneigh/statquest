@@ -481,3 +481,292 @@ test.** Third instance of the same mechanism, and the first where it fails:
 `6/11` passes identically with correct and with corrupted ranges. Pair 1–175 is
 the only real check — it disagrees in ordinal columns too, so the ranges enter
 the sum. Both pairs belong in `__main__`: one covers 11 columns of 35.
+
+### The model itself
+
+Four steps, of which only the last is a decision: distances to every row,
+`argsort`, first `k`, vote. `argsort` returns **positions**, and a position in
+`distances` is a position in `classes` because both are ordered as the frame's
+rows — so the nearest classes come from indexing `classes`, never from pulling
+symptom rows out of the frame. Symptoms are not needed once the distances
+exist.
+
+`k=1` was considered and rejected in one sentence: taking the first neighbour
+measures the other four and throws them away. And a model whose every answer is
+100% is a model that cannot say "not sure" — which is the probability output 1.6
+needs, and which he had already volunteered as 60/40 rather than just a winner.
+
+`np.asarray(frame, dtype=float)` turned out to be a free check. If `class` is
+still in the frame it raises `ValueError` on the first string, in the first
+line — rather than the silent shifted number that the earlier three-argument
+`gower` would have returned. The conversion that was there for the distance
+function is also the guard `knn` could not otherwise perform.
+
+### Where `class` gets dropped, and why one place
+
+Four candidates were worked through before settling. The deciding fact is that
+`make_gower` **freezes** `columns` and `ordinal_ranges` at the moment it is
+called. Dropping `class` inside `knn` afterwards cannot reach a closure built
+over 36 columns: rows arrive with 35 values, the loop counts to 36, stops at 35
+— and `IndexError` never fires. This is the 0.5 finding, in a second place and
+in the direction that does not protect you. The prediction in 0.5 was that a
+length mismatch would raise both ways; it does not.
+
+Nor can `knn` detect the mismatch. It can read `shape[1]` and get 35, but the
+number of columns a closure expects is invisible from outside, and `hamming`
+has no notion of columns at all. So `class` is dropped **above** both
+`make_gower` and `knn`, in the caller — there is only one frame, so there is
+nothing to disagree. That adds a fifth parameter, `classes`, placed next to
+`data_frame` because `classes[i]` only means anything if it is ordered as row
+`i`.
+
+A fourth option — `knn` computing the ordinal ranges itself — was rejected on a
+different ground. `knn`'s four jobs are distance, sort, select, vote, and not
+one of them knows what an ordinal column is. Asked who should know, the answer
+came back "the distance", which is exactly what `make_gower` exists for.
+
+### Self-exclusion, and two regimes that are not a flag
+
+The plant being predicted must not vote for itself — that vote carries the
+answer the model is supposed to derive. At `k=5` it is 20% of the vote handed
+over free; at `k=1` the model is perfect and has learned nothing. First
+appearance of the train/test distinction, named in 1.7.
+
+But the zero must not be excluded by **value**. Duplicate rows genuinely exist
+— 35 integer-coded columns, many binary — and a distance of zero to *another*
+plant is the strongest evidence available, not an artifact. Excluding zeros
+throws the best neighbour away. "Drop the zero" and "drop yourself" are not the
+same rule; one is a measurement, the other is leakage.
+
+So exclusion goes **outside** `knn`, by position, and `knn` takes no regime
+argument. Prediction on a new plant passes the whole frame and nothing is
+dropped; evaluation over the 307 rows passes the frame without row `i`. The
+position is never searched for — either the row was taken out and its position
+is known, or it came from outside and is not in there. Two callers, one
+function.
+
+His question — how to exclude by position a plant that has no position — was
+the right question and dissolves the same way: the case where there is no
+position is the case where nothing is excluded.
+
+### Two silent bugs, both label-versus-position
+
+**`drop(index=<row>)` instead of `drop(index=<label>)`.** A whole `pd.Series`
+of 35 values was passed where a label belongs; `drop` read the symptom *values*
+as row labels and deleted rows 0, 1, 2, 4, 5… The frame and the class series
+came out different lengths, the position↔position link broke, `knn` still
+returned a class, the class happened to be right, and nothing raised.
+`len(frame) == len(classes) == 306` is the assertion that catches it.
+
+**`drop(index=175)` with `iloc[175]`.** Correct here only because the index is
+the default 0–306 and untouched, so label and position coincide. Written the
+coinciding way it is a guess that happens to hold. Positional and consistent:
+`plant` from `iloc[i]`, and the drop label from `index[i]`. The same
+label/position confusion has now entered the code twice, and in 1.7 the train
+split's index no longer starts at 0 — at which point it stops being stylistic.
+
+### The prediction, and what it explains
+
+Row 1 is `diaporthe-stem-canker`, 10 in the set, 9 after removing itself. Asked
+how many of 5 neighbours could at most come from its own class: 9 and 5 — both
+right, and the second is the point. The limit is not the class size.
+
+Those 9 must beat all 297 other rows. The four classes at 40 field 160
+candidates against 9, so a rare class can lose every vote it should have won.
+Accuracy barely notices — that class was 10 of 307 — while its macro recall goes
+to zero and drags the average over 19. That is why `0.1303` and `0.0526` travel
+with every result, and it is the argument 1.5 formalises.
+
+`pd.set_option` at module level was moved: it changes pandas' display for every
+module that imports this one, so it belongs in `z.py` or under the `__main__`
+guard.
+
+### Four distances, one model
+
+Leave-one-out over every row, `k=5`. `make_gower` is built **once**, outside the
+loop: dropping a single row cannot move `max` or `min` in any ordinal column —
+measured, not assumed. The smallest extreme anywhere is `date = 0` at 12 rows;
+everywhere else it is tens. The caveat is worth stating as a decision rather
+than an oversight: a range computed over the whole frame has seen row `i`, the
+row the model is pretending not to know. Harmless here, named in 1.7, the same
+shape as target leakage in 4.8.
+
+**Gower over all 307 rows:**
+accuracy 271/307 = 0.8827 baseline 0.1303
+macro recall 0.8263 baseline 0.0526
+
+
+Seven times baseline on accuracy, fifteen times on macro recall.
+
+**Prediction, before running: 0.52, below 0.80. Both wrong.** The reasoning was
+that the top four classes are 52% of the data, so the model would mostly hit
+those. But 52% is the ceiling for *guessing* one of the big four blindly — KNN
+does not guess, it measures, and symptoms carry real information. A class's
+share of the data bounds the **baseline**, not the model. `0.1303` was that
+ceiling, and it had already been computed in 1.1.
+
+### `k` is a threshold a rare class has to clear
+
+`herbicide-injury` scored 0.000 with 3 neighbours still available, while
+`cyst-nematode` scored 1.000 with 5. Class size is not what separates them.
+
+With `k=5`, a class needs roughly 3 of the 5 votes to win. `herbicide-injury`
+has 3 left after removing itself, so **all three** must land in the top five and
+beat 160 candidates from the four classes at 40. One intruder at position three
+and it loses — no possible set of neighbours saves it. `cyst-nematode` has
+exactly 5, and survives only because it is *isolated*: all six rows share the
+identical 11-column hole from 0.4, so Gower divides by 11 for pairs inside the
+group and the group sits far from everything else.
+
+Which makes that 1.000 the opposite of a success. It is not knowledge about
+soybeans, it is recognition of who filled in the form — the MNAR leakage from
+0.4, appearing for the first time as a number. In fitomedicina this is inverted:
+a farmer's partial answers are noise, not signal. **Measured in 4.5.**
+
+`2-4-d-injury`, n=1, scores 0.000 by construction: remove it and zero examples
+remain, so no neighbour can carry its class. Predicted correctly, both halves.
+That is also the 1.7 question about stratifying a class of one, answered early —
+leave-one-out on a singleton class guarantees an error regardless of model.
+
+### Only Gower can run on all 307
+
+`euclidean` and `manhattan` return NaN on rows with holes — no mask, no column
+dropping. `np.argsort` puts NaN **last**, so nothing raises: those rows are
+simply never selected as neighbours. The model silently runs over a subset
+nobody chose, and the subset is skewed by diagnosis because sparsity tracks
+disease (0.4). A number comes out and it looks like an accuracy.
+
+Three options. Masking gives 307 predictions but compares 35 columns for one
+pair and 11 for another — the 1.2 finding about Gower across different `n`, and
+worse here since Euclidean does not even divide. Imputation is a method with
+three variants measured in 4.5, not a preparation step. **Chosen: filter to
+complete rows**, because it is the only option where all four distances see
+identical rows and identical columns, so the difference between four numbers is
+the difference between definitions of "close" and nothing else.
+
+The price was measured, not assumed: **266 rows, 15 classes.** Four classes
+vanish entirely — `cyst-nematode`, `diaporthe-pod-&-stem-blight`,
+`herbicide-injury`, `2-4-d-injury` — four of the five smallest.
+`phytophthora-rot` drops 40 → 16, the bimodal split from 0.4. The filter
+removed exactly the classes the 307-row run had found the model failing on. So
+the two runs do not compare: 307 is the result, 266 is the experiment.
+
+          accuracy   macro recall      (266 rows, 15 classes)
+gower       0.9023         0.9250
+hamming     0.8722         0.8717
+manhattan   0.8609         0.8667
+euclidean   0.8346         0.8325
+
+**Prediction: Gower first, margin above 0.02. Right on both, on both measures.**
+0.053 on macro recall, 0.030 on accuracy.
+
+Gower above Hamming means the invented ordinal spacing **carries information** —
+five one-step differences really are closer than four changes of state. Hamming
+above Manhattan and Euclidean is the 1.2 `canker_lesion` permutation as a score:
+those two read nominal codes as quantities, so they measure the labels rather
+than the plants. Hamming, which never looks at the codes at all, beats both.
+Euclidean is last because squaring amplifies large differences, and a large
+difference between nominal codes is an accident of which integer got assigned.
+
+But no distance dominates. Gower is **third** on `alternarialeaf-spot` (0.900 vs
+0.925 for Hamming and Euclidean), second on `brown-spot` (0.925 vs Manhattan's
+0.950), and Euclidean — the worst overall — is the only one perfect on
+`anthracnose`. Gower wins by being perfect on 8 of 15 classes against Hamming's
+6, mostly the classes at 10. Revisit in 8.1.
+
+### The same difference, two sizes
+
+Gower − Hamming is 0.030 by accuracy and 0.053 by macro recall. Class by class,
+Gower gains on `bacterial-blight` 9→10, `bacterial-pustule` 7→8, `downy-mildew`
+9→10, `phyllosticta-leaf-spot` 2→6, `purple-seed-stain` 9→10, and loses on
+`alternarialeaf-spot` 37→36. Every gain is in a class of 10; the loss is in a
+class of 40.
+
+Accuracy counts those four `phyllosticta` plants as 4/266. Macro recall counts
+them as 4/10 inside the class, lifting its recall 0.200 → 0.600, and the class
+is 1/15 of the average — 0.027 from one class, nearly the whole accuracy margin.
+
+This is 1.1's report card producing two different verdicts on one model for the
+first time: accuracy is one vote per case, macro recall one vote per class.
+
+**Not an artifact.** The word matters. Gower wins on accuracy too — 240 vs 232,
+eight plants, same direction under both measures. Macro recall did not *create*
+the advantage, it weighted it differently. It would be an artifact in the case
+where the two measures disagree: 85+3 against 80+8 out of 90 and 10 both give
+accuracy 0.88, while macro recall reads 0.622 against 0.844 — five cases traded
+from the big class to the small one, no case gained, and a difference that
+exists only inside that way of counting.
+
+Which weight is right is not a statistical question. If every plant costs the
+same, accuracy is the measure and the margin is 0.030. If every disease matters
+equally — a farmer with a rare disease does not deserve a worse diagnosis for
+being rare — macro recall is the measure and the margin is 0.053. That is a
+product decision, the same shape as the cost asymmetry in 1.6.
+
+### Two bugs the checks caught
+
+`support_per_class` and `correct_per_class` both incremented inside the `if`, so
+support was a second count of correct answers, summing to 271 instead of 307. A
+`defaultdict` key exists only once something is written to it, so iterating over
+`correct_per_class` printed 17 classes: `herbicide-injury` and `2-4-d-injury`
+had never been hit, so they were not absent-with-zero, they were absent. Iterate
+over **support**, which is filled unconditionally, and read the numerator as
+`correct_per_class[c]` — a missing key returns 0 on a `defaultdict(int)`.
+
+Denominator 306 with 307 predictions counted. Same slip as 1.1, where a macro
+average was divided by the number of cases instead of the number of classes.
+Checks that paid: support totals 307 across 19 keys and matches 1.1's
+distribution row for row; `sum(correct_per_class.values()) == correct_predictions`.
+
+### Ties, and a second kind nobody was looking for
+
+**Ties in the vote: 11 of 266, 7 resolved correctly.** Predicted under 20 —
+right; predicted 8–12 correct — right, at the edge. That is 0.636 against 0.899
+overall, so ties are genuinely the harder cases, but better than the ~5.5 a coin
+flip between two tied classes would give. On 11 cases that gap is inside the
+noise: the rule is not worse than random, and no stronger claim survives.
+
+`k=5` is odd, which prevents ties only for **two** classes. With 15 in play the
+vote splits three ways and 2–2–1 is a tie regardless.
+
+The rule `idxmax` was applying, unasked, is "nearest representative wins" — one
+of the three options from §6 — because `value_counts()` orders equal counts by
+first appearance and `nearest_classes` is sorted by distance. It is a reasonable
+rule and it is now **written**: take the classes sharing the maximum, then walk
+`nearest_classes` from the front and take the first one in that set. Not
+`iloc[0]` of `nearest_classes` — on A, B, B, C, C the nearest neighbour is A,
+which lost the vote. Numbers unchanged at 240 / 0.9250 / 12 / 8, which is the
+proof the rule is the same one.
+
+The stake was measured before deciding: 4 predictions of 266, at most 0.015 on
+accuracy. No option from §6 would be distinguishable from another. The decision
+worth making was not which rule but that the rule is stated, since it was a
+consequence of how pandas sorts and would have changed silently underneath.
+
+**The second kind: ties in the distance itself.** `np.argsort` defaults to
+quicksort, which is not stable — with equal distances the order is arbitrary and
+not reproducible. When the 5th and 6th neighbours are equidistant, one enters
+the vote and the other does not, and quicksort picks. `kind="stable"` moved the
+result: 239/0.9233/11 against 240/0.9250/12. Verified by reverting it alone.
+
+**`kind="stable"` stays, and it is a decision, not a style.** It is worse by one
+prediction and identical every run. A model that cannot reproduce its own number
+cannot be measured, and 1.7 onward compares numbers across runs.
+
+These ties are frequent here, not incidental. Gower is a sum over columns where
+nominal contributes 0 or 1 and ordinal a fraction with a small denominator —
+nothing continuous anywhere. Few distinct values are reachable across 35
+columns, and 265 pairs per plant fall into them. With real measurements two
+identical distances would be a coincidence; on integer codes they are the rule.
+Third appearance of 1.1's principle: every tie is broken by someone, and here
+the someone was neither him nor the data order but an unspecified sort.
+
+**Final numbers for 1.3, both rules written:**
+
+                accuracy                macro recall
+gower, 307 rows 0.8827 0.8263 baseline 0.1303 / 0.0526
+gower, 266 complete 0.8985 0.9233 11 ties, 7 correct
+
+`complete = data.notna().all(axis=1)` replaced a list of labels indexed with
+`.iloc`. Same 266 rows; the old form worked only because the index was still
+0–306. Fourth time label-versus-position entered this file.
