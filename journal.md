@@ -770,3 +770,450 @@ gower, 266 complete 0.8985 0.9233 11 ties, 7 correct
 `complete = data.notna().all(axis=1)` replaced a list of labels indexed with
 `.iloc`. Same 266 rows; the old form worked only because the index was still
 0–306. Fourth time label-versus-position entered this file.
+
+
+## 1.4 — Confusion matrix
+*2026-09-14*
+
+Seven lines of function, and the whole point of the step is that it measures
+nothing new. `support_per_class` is a row sum, `correct_per_class` is the
+diagonal, `correct_predictions` is the trace. Three counters from 1.3 were
+summaries of an object that was never built. Now the object exists and the
+summaries are readings off it.
+
+### What survives the two arrays, and what does not
+
+Of the five counters the 1.3 loop carried, three fall out of `y_true` and
+`y_pred` alone. Two do not: `shared_maximum` and `accurate_shared_maximum`,
+both of which need `vote_counts`.
+
+The rule that separates them: **the two arrays record the decision, not the
+evidence.** From a pair "actual, predicted" there is no way back to whether the
+vote was 3–2 or 2–2–1. Anything asking *how* the model arrived at an answer has
+to be measured while the answer is produced; anything asking only *what* the
+answer was can wait.
+
+That settles where the tie counters live — inside the loop, permanently. They
+are not scaffolding the matrix will eventually replace.
+
+### The class list is an argument, not a derivation
+
+Three candidate sources for the third parameter: read it off `y_true`, off
+`y_pred`, or take it from the caller. Chosen: the caller.
+
+A matrix that reads its own class list from what happened cannot know about a
+class that did not happen. It builds a smaller table and the table looks
+complete. That is 1.3's `defaultdict` bug moved one level up — there, a class
+the model never predicted had no key, so the printout showed 17 of 19 and
+nothing was missing-with-zero, it was missing. The caller holds the whole
+dataset and knows what was *possible*, which is a different question from what
+*occurred*.
+
+### The shape is declared, not discovered
+
+Predicted 15 rows and 19 columns if 19 classes were passed. Wrong:
+`np.zeros((len(classes), len(classes)))` uses the same number twice, so the
+matrix is square by construction.
+
+The expectation came from treating the matrix as something the data produces —
+15 diseases occurred, 19 were possible, so the axes should differ. It is
+something the caller *declares*, which is the same fact as the third argument
+being explicit, seen from the other side.
+
+### 15 classes, not 19
+
+Passing 19 gives a 19×19 with four rows **and** four columns of zeros:
+`cyst-nematode`, `diaporthe-pod-&-stem-blight`, `herbicide-injury`,
+`2-4-d-injury`, all removed by the complete-case filter. In 1.5 the recall of
+those four is 0/0 — a division by zero, or a silent `nan`, or a class reading
+0.000 that looks like model failure when the model never met the disease. An
+artifact of the filter, not a result.
+
+The matrix describes **one measurement**, and that measurement saw 266 rows and
+15 diseases.
+
+Counterargument rejected: a fixed 19×19 makes every run the same shape and
+comparable cell by cell. But 307-Gower and 266-Gower do not compare anyway
+(1.3), so there is nothing to align.
+
+### `make_gower` goes after the filter
+
+First draft built the closure on all 307 rows and filtered to 266 afterwards.
+The closure freezes `ordinal_ranges` at call time, so the filter cannot reach
+them: every distance in the run would divide by a range that had seen 41 rows
+the run claims not to know.
+
+1.3 established the opposite for one row — `make_gower` is built once, outside
+the leave-one-out loop, because dropping a single row cannot move `max` or
+`min` in any ordinal column, and that was *measured*. 41 rows is a different
+claim and was not measured. **A measurement for n=1 is not a measurement for
+n=41**, particularly when the 41 are selected by a rule — the MNAR pattern from
+0.4 — rather than at random.
+
+### Two places chosen to be loud
+
+`zip` stops at the shorter list and says nothing. That is 0.5's finding by
+another route: a length mismatch does not reliably raise. `strict=True` turns
+it into `ValueError`. It matters because `y_true` and `y_pred` are appended in
+the same loop, and the moment one `append` ends up inside an `if`, the lists
+drift and the matrix fills anyway — just wrongly.
+
+`class_to_index[actual]` raising `KeyError` on an unknown class is the same
+choice, against 1.3's `defaultdict`, which was silent. Neither is defensive
+coding. Both are: when two things disagree, fail rather than produce a
+plausible table.
+
+### `int64`, and where `isclose` does not belong
+
+`np.zeros` returns float by default. Cells are counts — 0, 1, 28, never 3.5 —
+and counts are compared with `==`.
+
+0.5's rule is about *measurements*: three summation algorithms give three
+different sums, so comparisons against a reference use `isclose`. Counting has
+no such spread. The row-sum check was first written with `np.isclose`, which is
+both the wrong tool and returns an array of 15 booleans instead of one verdict.
+`np.array_equal`.
+
+### pandas 3.0: `Series[key]` no longer falls back to position
+
+Checked, because I was told the opposite and ran it.
+
+s = pd.Series([10, 20, 30], index=["date", "precip", "temp"])
+s[1] -> KeyError: 1 (pandas 3.0; earlier versions returned 20)
+
+s = pd.Series([10, 20, 30], index=[5, 6, 7])
+s[5] -> 10 (label wins over position)
+
+
+The positional fallback existed for years, was deprecated through 2.x, and is
+gone in 3.0. What survives is the part that bites: **`s[key]` means label, and
+when labels happen to be integers that coincide with positions, label and
+position agree until they don't.** That is the label-versus-position bug that
+entered this file four times in 1.3, stated as a rule instead of a habit.
+
+Consequence in the loop: `gower` reads `a[0]`, `a[1]` positionally, so the test
+plant is wrapped in `np.array(...)`. Not because a `Series` would work silently
+— on this version it raises — but because an array has positions and nothing
+else, so `a[0]` has exactly one meaning.
+
+### The matrix
+
+15×15, rows actual, columns predicted, both alphabetical because `np.unique`
+sorts.
+
+Three checks, of which only one can fail on a transpose:
+
+all cells 266 every pair landed in exactly one cell
+trace 239 accuracy 0.8985, unchanged from 1.3
+row sums match value_counts, class by class
+
+
+266 and 239 come out identical on a transposed matrix. Row sums do not —
+transposed they count how often each class was *predicted*, a different number.
+**Write the check that can fail.**
+
+Nothing here is a new measurement: 239/266 = 0.8985, and the mean of the 15
+per-class recalls is 0.9233. Both were already in 1.3.
+
+One number did move. 1.3 recorded `alternarialeaf-spot` at 36 of 40 in the
+pre-`kind="stable"` table; it is 35 here. That is the single prediction
+`kind="stable"` cost — 240 → 239 — and it now has an address.
+
+### The finding: the distance is symmetric, the matrix is not
+
+frog-eye-leaf-spot -> alternarialeaf-spot 11
+alternarialeaf-spot -> frog-eye-leaf-spot 2
+
+
+Two classes of 40 each, and `gower(a, b) == gower(b, a)`.
+
+*Predicted before looking: 9–12 of the 12 lost `frog-eye` cases land in
+`alternarialeaf-spot`. Actual 11, with 1 in `brown-spot`. Correct, on a narrow
+band. Reasoning given: both are leaf spots, both sit at 40.*
+
+The resolution is that a cell is not a statement about a pair of classes.
+**Cell (A, B) counts how many A-points had a B-majority neighbourhood** — a
+property of where A's points sit relative to everything else, not of the
+relation between A and B. Symmetry of the distance constrains pairs. It says
+nothing about neighbourhoods.
+
+A compact class overlapped by a diffuse one: every compact point's five nearest
+are compact points, while many diffuse points' five nearest are also compact
+points. The leak runs one way. Here `alternaria` holds its centre — 35 of 40,
+and its 5 misses scatter across three classes — while `frog-eye` leans into it:
+28 correct, 11 into `alternaria`, 1 into `brown-spot`. Twelve misses, eleven at
+one address.
+
+A second and separate asymmetry, worth not confusing with the first:
+leave-one-out always removes a member from the true class and never from the
+rival, so every point is judged against a class one short. Decisive for a
+singleton — `2-4-d-injury` at 0.000 in 1.3 — and negligible at 39 against 40.
+Density explains 11 against 2; the leave-one-out tax does not.
+
+**What the matrix gives that 1.3 could not.** Accuracy says how much was
+missed. Per-class recall says which class missed. Only the matrix says *where
+the miss went* — and the misses turn out not to be smeared, they have a
+destination.
+
+### Agronomic sense, which the step asks for
+
+Both diseases produce round leaf lesions with a dark margin and a lighter
+centre, and they are confused in the field by people. The visible difference
+photographs point to is the yellow halo around the lesion — which is
+`leafspots_halo`, a column that exists in `.names` because somebody decided
+that was the thing separating similar spots.
+
+The model never sees a photograph. It sees 35 recorded answers, and the 11
+leaked cases are the cases where those answers were not enough. **4.2 measures
+exactly this**: how many bits of uncertainty `leafspots_halo` removes. The
+value of a question is not that it marks a real biological difference; it is
+how much of the remaining confusion it resolves — and this matrix is where the
+remaining confusion sits.
+
+### Open
+
+**The three distances are still pre-`kind="stable"`.** `hamming`, `manhattan`
+and `euclidean` were scored before the stable sort, so 1.3's four-number table
+is mixed. Now one edit per distance, since the distance is a variable rather
+than hard-coded into the `knn` call.
+
+Needed before **`phyllosticta-leaf-spot`, 0.600 under Gower against 0.200 under
+Hamming** — the widest gap between two distances in the table — can be read off
+a matrix. Its row here is 6 of 10, with 3 into `alternaria` and 1 into
+`brown-spot`. The Hamming matrix is what says whether the same class absorbs
+the other four.
+
+**The four-way tie at 40**, still unresolved from 1.1. And `baseline.py` still
+runs at module level with no `__main__` guard.
+
+
+### The debt from 1.3, paid — and it cost a sentence
+
+`hamming`, `manhattan` and `euclidean` were scored before `kind="stable"`.
+Re-run now that the distance is a variable at the top of `__main__` rather than
+hard-coded into the `knn` call. One edit per distance.
+
+    before stable    now    delta
+gower         240    239       -1
+hamming       232    229       -3
+manhattan     229    231       +2
+euclidean     222    223       +1
+
+
+*Predicted: 1–3 predictions move across all three distances. Actual: at least
+6.* And that is a floor, not a count — the trace shows the **net**, so three
+falling and none rising is indistinguishable from five falling and two rising.
+
+The reasoning behind the prediction was extrapolation from Gower's single
+moved prediction. Gower turned out to be the least affected of the four, so it
+was the wrong one to extrapolate from. **Generalising from the best-behaved
+case is not generalising.**
+
+### The ordering flipped, and a 1.3 finding does not survive it
+
+before: gower 240, hamming 232, manhattan 229, euclidean 222
+now: gower 239, manhattan 231, hamming 229, euclidean 223
+
+
+1.3 recorded: *"Hamming above Manhattan and Euclidean is the 1.2
+`canker_lesion` permutation as a score"* — Hamming wins because it refuses to
+read nominal codes as quantities. That claim rested on a 3-prediction gap.
+The gap is now 2 predictions the other way, 0.0075 of accuracy. **Neither
+ordering supports the story.** The sentence goes.
+
+What survives: Gower first with a clear margin, Euclidean last. The middle is
+undecided, and the 1.2 argument about permuting nominal codes is still correct
+as an argument — it just has no support from this table.
+
+### Why three and not one: resolution, and a blind cut
+
+`k=5` takes the first five of a sorted list. If the 5th and 6th neighbours are
+equidistant the distance does not choose between them — the sort does. Call that
+a **blind cut**: the boundary falls inside a block of equal values rather than
+between two distinct ones.
+
+Distances from position 0 to the other 265, distinct values:
+gower 110
+hamming 20
+
+Hamming over 35 columns can only return 0 through 35 — **36 reachable values
+for any pair, on any dataset of this width**, and only 20 of them occur here.
+Gower divides by the column count and nine ordinal columns contribute
+fractions, so far more values are reachable.
+
+**The average group size argument, and why it is wrong.** 265 neighbours over
+20 values gives ~13 per value, which predicts the cut at position 5 lands
+inside a block almost always. Position 0's actual Hamming groups:
+distance 0 4 5 6 7 8 9 10 11 12
+count 1 2 2 3 2 1 3 20 18 22
+
+
+Cumulative 1, 3, 5 — the 5th neighbour is the last of its group and the 6th
+starts a new one. **Clean cut, for this plant.** The groups near zero are 1, 2,
+2, 3; the mass sits at distance 10 and beyond, in groups of ~20. The
+distribution is nowhere near uniform, so the mean describes none of it, and the
+cut at position 5 lands in the sparse tail rather than in an average block.
+
+Same shape of error as 1.2's disproved Gower bound: **an argument resting on how
+values "usually" distribute is an assumption wearing a formula.** Measure the
+thing instead.
+
+### Blind cuts, measured
+
+Test per plant: take `np.unique(distances, return_counts=True)`, cumulative-sum
+the counts, and ask whether **5 appears among the cumulative sums**. If it does,
+some group ends exactly at the 5th neighbour and the cut is clean. If it does
+not, the 5th and 6th are in the same group and the cut is blind.
+
+Over all 266 plants:
+
+     blind cuts   of 266    moved by kind="stable"
+hamming     176      66%                        3
+manhattan   158      59%                        2
+euclidean   137      52%                        1
+gower        62      23%                        1
+
+
+*No prediction recorded — the measurement arrived first. Third time this
+session.*
+
+Three orderings agree: blind-cut frequency, sort sensitivity, and the results
+table upside down. Gower is the least blind and the best; Hamming the most
+blind and the most sensitive.
+
+**But 176 blind cuts produce 3 moved predictions.** A blind cut almost never
+changes an answer, because three conditions have to chain: the tied group must
+straddle the boundary, it must contain more than one class, *and* the vote must
+be close enough for one swapped voter to flip it. Being unable to order the
+neighbours is not the same as getting them wrong.
+
+This corrects the earlier claim that a 2-prediction gap "sits inside the noise
+the sort generates". The noise is now bounded: 3 predictions for Hamming, and
+that is an upper bound, because 3 is everything the switch to a stable sort
+moved. Two predictions is still inside it — but because the gap is tiny, not
+because the noise is large.
+
+**The ratio that is not a finding.** 176/62 ≈ 2.8 blind cuts, 3/1 moved
+predictions. It is tempting to read linearity out of that. It rests on the
+numbers 3 and 1: had Gower moved 2 instead of 1, the ratio would be 1.5, and
+1.3's analysis already showed how fragile a single prediction is here. Same
+error as the average-group-size argument two sections up, and as the 1.2 bound.
+**Recorded as a coincidence, not a rule.**
+
+### What this leaves standing
+
+The 1.3 explanation for Gower's win was that the invented ordinal spacing
+carries information. This measurement adds a second, independent mechanism:
+Gower can *order* its neighbours at all, and Hamming largely cannot — 20
+distinct values against 110.
+
+Two mechanisms, same direction, not separated here. 8.1: a Gower variant with
+every ordinal column forced to nominal would isolate the first from the second.
+
+### Still open
+
+**The four-way tie at 40**, unresolved since 1.1. And `baseline.py` still runs
+at module level with no `__main__` guard.
+
+### The four-way tie at 40, resolved by looking
+
+Open since 1.1: four classes hold exactly 40 cases — `phytophthora-rot`,
+`brown-spot`, `alternarialeaf-spot`, `frog-eye-leaf-spot` — so "the most
+frequent class" is not unique. `idxmax` returns the first maximum, and
+`value_counts()` orders equal counts by first appearance, so the winner is
+decided by row order in `soybean-large.data`.
+
+Accuracy does not care — 40 over the total either way — which is why 1.1 was
+unaffected and the item could wait. The matrix does care: a model that always
+answers the same disease fills **exactly one column**, and which column is the
+whole shape of the matrix.
+
+**Measured, and it is worse than "arbitrary":**
+idxmax on 307 rows -> phytophthora-rot
+idxmax on 266 rows -> brown-spot
+
+
+Same code, same function, one filter in between, and the baseline predicts a
+different disease. `phytophthora-rot` falls 40 → 16 under the complete-case
+filter (0.4's bimodal split), so it stops being a candidate; the other three
+stay at 40 and the tie is still three-way, still broken by file order. **No rule
+was applied and no rule changed. The set of candidates changed.**
+
+### The baseline moves with the set
+                307 rows, 19 classes    266 rows, 15 classes
+accuracy                      0.1303                  0.1504
+macro recall                  0.0526                  0.0667
+
+
+*Computed by hand before running, both correct:* 40/266 and 1/15.
+
+The filter removed four rare classes, so the largest class holds a larger share
+and the per-class mean divides by fewer classes. **The baseline went up.**
+
+Which is the reason it has to travel with its own set. Gower on 266 is 0.8985,
+6.0× its baseline. Gower on 307 is 0.8827, 6.8× its baseline. The raw number is
+higher on 266 and the ratio is lower — an easier task and a better score are
+not the same thing.
+
+### Baseline against Gower, both on 266
+                     baseline    gower
+non-zero columns            1       15
+classes with recall>0       1       15
+diagonal                   40      239
+accuracy               0.1504   0.8985
+macro recall           0.0667   0.9233
+
+
+One column against fifteen. The baseline's matrix is what "knows nothing" looks
+like when you stop summarising it into a number: every row points at the same
+answer, and 14 of 15 diseases are never named.
+
+**A wrong `classes` argument produced a matrix that was internally correct and
+not comparable.** First attempt passed the per-row class Series instead of
+`unique_classes`, so the axes came out in order of first appearance rather than
+alphabetically. All three checks passed — 266, diagonal, row sums — because each
+is invariant to relabelling the axes. Only lining the row sums up against the
+Gower matrix, class by class, showed it. Same trap as `value_counts()` against
+`np.unique` in the row-sum check: **two aligned-looking vectors of 15 numbers,
+not aligned.**
+
+Third instance of 1.1's rule this step. Every tie is broken by someone: here the
+class tie by file order, the neighbour tie by an unspecified sort, and the
+distance tie at the `k` boundary by the sort again.
+
+### Open
+
+The baseline matrix was computed in `z.py`. It belongs in `baseline.py`, which
+still runs at module level with no `__main__` guard — one edit covers both.
+
+### `baseline.py`, rewritten
+
+Module-level body moved under a `__main__` guard — open since session 3, and it
+started to matter once anything imported across `phase1_evaluation`.
+
+Both baselines now live in the file rather than one in the file and one in the
+journal. 307 is the result, 266 is the comparison, and a number that exists only
+in prose gets quoted wrongly within a month.
+
+**One method, not two.** The old code computed macro recall as `1 / nunique`.
+That formula is correct only because the majority-class baseline gets recall 1
+on exactly one class and 0 on every other — it is not a definition of macro
+recall, it is an arithmetic accident of this one model. Left in the file it
+would keep printing a plausible number for the first model that partially hits
+two classes. Both rows are now read off the matrix: `np.diag(cm) / cm.sum(axis=1)`,
+then the mean.
+
+Verification that the rewrite changed nothing: the all-rows row reproduces 1.1's
+`0.1303` and `0.0526` exactly. Same check as `make_gower`'s bit-identical ranges
+— a refactor is proved by the number it does not move.
+
+              rows  classes  majority_class     accuracy  macro_recall
+all rows       307       19  phytophthora-rot     0.1303        0.0526
+complete rows  266       15  brown-spot           0.1504        0.0667
+
+
+`assert cm.sum() == len(classes)` sits inside the function, not at the call
+site. A matrix that had lost rows would still return a plausible accuracy,
+since numerator and denominator both come from it. Putting the check outside
+would mean returning the matrix to a caller that has no other use for it —
+the 1.3 rule about a counter escaping `knn`, in a second place.

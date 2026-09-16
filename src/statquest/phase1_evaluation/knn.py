@@ -1,4 +1,3 @@
-from collections import defaultdict
 from collections.abc import Callable
 
 import numpy as np
@@ -30,67 +29,76 @@ def knn(
 
 if __name__ == "__main__":
     from statquest.phase0_foundation.load_soyabeans import load_soyabeans_csv
-    from statquest.phase1_evaluation.distances import make_gower
+    from statquest.phase1_evaluation.distances import (
+        # hamming_distance,
+        # manhattan_distance,
+        euclidean_distance,
+        make_gower,
+    )
+    from statquest.phase1_evaluation.metrics import confusion_matrix
+
+    pd.set_option("display.max_rows", None)
+    pd.set_option("display.max_columns", None)
 
     data = load_soyabeans_csv()
-    data_classes = data["class"]
+    data_classes_per_row = data["class"]
     data_wo_classes = data.drop("class", axis=1)
 
-    complete = data.notna().all(axis=1)
-    data_classes = data_classes[complete]
-    data_wo_classes = data_wo_classes[complete]
+    complete_rows = data_wo_classes.notna().all(axis=1)
+    data_classes_per_row_complete_rows = data_classes_per_row[complete_rows]
+    data_wo_classes_complete_rows = data_wo_classes[complete_rows]
 
-    gower = make_gower(data_wo_classes)
-    support_per_class = defaultdict(int)
-    correct_per_class = defaultdict(int)
-    correct_predictions = 0
-    shared_maximum = 0
-    accurate_shared_maximum = 0
+    gower = make_gower(data_wo_classes_complete_rows)
+    distance = euclidean_distance
 
-    for position in range(len(data_wo_classes)):
-        class_actual = data_classes.iloc[position]
-        support_per_class[class_actual] += 1
-        plant_new = np.array(data_wo_classes.iloc[position])
-        keep = np.arange(len(data_wo_classes)) != position
+    actual_classes = []
+    predicted_classes = []
+    for position in range(len(data_wo_classes_complete_rows)):
+        class_actual = data_classes_per_row_complete_rows.iloc[position]
+        test_plant = np.array(data_wo_classes_complete_rows.iloc[position])
 
-        _data_wo_classes = data_wo_classes.iloc[keep]
-        _data_classes = data_classes.iloc[keep]
+        keep = np.arange(len(data_wo_classes_complete_rows)) != position
 
-        assert len(_data_wo_classes) == len(_data_classes) == len(data_wo_classes) - 1
+        data_wo_classes_complete_rows_keep = data_wo_classes_complete_rows[keep]
+        data_classes_per_row_complete_rows_keep = data_classes_per_row_complete_rows[
+            keep
+        ]
 
-        class_predicted, vote_counts = knn(
-            _data_wo_classes, _data_classes, plant_new, 5, gower
+        assert (
+            len(data_wo_classes_complete_rows_keep)
+            == len(data_classes_per_row_complete_rows_keep)
+            == len(data_wo_classes_complete_rows) - 1
         )
 
-        if (vote_counts == vote_counts.max()).sum() > 1:
-            if class_predicted == class_actual:
-                accurate_shared_maximum += 1
-            shared_maximum += 1
-
-        if class_predicted == class_actual:
-            correct_per_class[class_actual] += 1
-            correct_predictions += 1
-
-    print(f"Correct predictions: {correct_predictions}")
-    print()
-    print(f"Support per class: {dict(support_per_class)}")
-    print(f"Support total: {sum(support_per_class.values())}")
-    print()
-    print(f"Correct per class: {dict(correct_per_class)}")
-    print(f"Correct total: {sum(correct_per_class.values())}")
-    print()
-    recall_per_class = {
-        k: correct_per_class.get(k, 0) / support_per_class[k]
-        for k in sorted(support_per_class, key=lambda k: (-support_per_class[k], k))
-    }
-    print("Recall per class (sorted by support, desc):")
-    for cls, recall in recall_per_class.items():
-        print(
-            f"{cls:<25} support={support_per_class[cls]:>3}"
-            f"  correct={correct_per_class.get(cls, 0):>3}"
-            f"  recall={recall:.3f}"
+        class_predicted, _ = knn(
+            data_wo_classes_complete_rows_keep,
+            data_classes_per_row_complete_rows_keep,
+            test_plant,
+            5,
+            distance,
         )
-    print()
-    print(f"Macro recall: {sum(recall_per_class.values()) / len(recall_per_class)}")
-    print(f"Shared: {shared_maximum}")
-    print(f"Accuracy on shared: {accurate_shared_maximum}")
+
+        actual_classes.append(class_actual)
+        predicted_classes.append(class_predicted)
+
+    unique_classes = np.unique(data_classes_per_row_complete_rows)
+    matrix = confusion_matrix(
+        np.array(actual_classes), np.array(predicted_classes), unique_classes
+    )
+
+    num_of_cases_per_class = (
+        data_classes_per_row_complete_rows.value_counts()
+        .sort_index(ascending=True)
+        .to_numpy()
+    )
+    num_of_cases_per_row = np.sum(matrix, axis=1)
+    print(f"Confusion matrix: \n{matrix}")
+    print(f"Sum of all cells: {np.sum(matrix)}")
+    print(f"Sum of diagonal elements: {np.trace(matrix)}")
+    print(f"Sum through rows: {num_of_cases_per_row}")
+    print(f"Number of cases per class: {num_of_cases_per_class}")
+    print(
+        "sum through rows == number of cases per class:",
+        np.array_equal(num_of_cases_per_class, num_of_cases_per_row),
+    )
+    print(matrix.shape)
