@@ -1373,3 +1373,209 @@ than 4 of 10.
 Sensitivity and specificity, F1, and micro averaging are still ahead in 1.5.
 Specificity is the first metric here that uses TN, and with 15 classes TN is
 most of every one-vs-rest table.
+
+### Specificity, and the group it counts
+
+The first metric here that uses TN. Recall asks about the plants that have the
+disease, specificity about the plants that do not: of those, how many the model
+left alone. TN / (TN + FP), and on a 15-class matrix that means folding the
+other 14 diseases into one "not this one" — everything outside the class's row
+and column, `cm.sum() - row - column + diagonal`.
+
+Predicted phyllosticta's specificity in the band 0.80–0.95. It is 254/256 =
+0.9922. The prediction was sized from its recall of 0.600 and precision of
+0.750, and **that is the error: specificity counts a different group, and a
+much larger one.** Recall looks at 10 plants, precision at the 8 occasions the
+name was used, specificity at the 256 plants that do not have the disease. Two
+false alarms cannot move a ratio with 256 in it.
+
+```
+gower       mean 0.9922   min 0.9292 (alternaria)   14 of 15 above 0.98
+hamming     mean 0.9894   min 0.9248 (alternaria)
+```
+
+Alternaria is lowest in both, the same 16 false alarms that give it the worst
+precision at 0.686. The difference is the denominator: 51 for precision, 226 for
+specificity, so the same errors cost 0.31 in one and 0.07 in the other.
+
+**Specificity does not separate the distances and stays out of the comparison
+table.** Hamming makes 37 errors against Gower's 27, 37% more, and the mean
+specificity falls by 0.0028. Macro recall falls by 0.0575 over the same pair —
+twenty times as much. Predicted correctly that Hamming would sit below Gower;
+the sign was never the question, the size is. Kept in `metrics.py` for phase 2,
+where ROC needs FPR = 1 − specificity.
+
+### The axis that made specificity a copy of recall
+
+First version used `conf_matrix.sum(axis=1)` for FP, which is the row, so it
+computed TN / (TN + FN) — specificity with recall's error in it. The output said
+so before the code was read: exactly nine classes came out at 1.000, and those
+were exactly the nine classes with recall 1.000. A class with FN = 0 gives
+TN/TN.
+
+**A wrong metric that correlates perfectly with another metric is the symptom to
+look for.** Specificity should have nothing to do with recall, and nine exact
+ties are not chance.
+
+### Neither measure means anything alone
+
+Two models on the same 10 plants, 4 rust and 6 spot:
+
+```
+[[4 0]     every plant called rust      recall 1.000   specificity 0.000
+ [6 0]]
+
+[[0 4]     rust never said at all       recall 0.000   specificity 1.000
+ [0 6]]
+```
+
+Predicted the first model's specificity for rust as 1.0; it is 0/6. The six
+plants without rust were all called rust, so nothing was left alone. Same pair
+as the baseline's recall 6/6 against precision 6/16 — **one measure can always
+be maximised by refusing to look at the data, which is why they are reported in
+pairs.**
+
+### F1, and why the mean is harmonic
+
+Arithmetic mean lets a good half cover a bad one: the baseline would score
+(1.000 + 0.150)/2 = 0.575. The harmonic mean 2PR/(P+R) sits near the smaller of
+the two, so the baseline gets 0.261, and no model reaches a high F1 with one
+strong and one weak measure.
+
+Predicted frog-eye's F1 below the arithmetic mean of 0.817 and nearer 0.700 —
+right on both. It is 0.800, and the round number comes from the identity: with P
+and R substituted, F1 = 2TP / (2TP + FP + FN) = 56/70. Both error types enter
+once each and TN does not appear.
+
+```
+alternaria   0.769      frog-eye 0.800      phyllosticta 0.667
+```
+
+Nine classes have recall 1.000 and only seven keep F1 1.000. Bacterial-blight
+drops to 0.909 and phytophthora-rot to 0.970 — the two whose columns took in
+another class's plants. **F1 is the one number that cannot be earned from the
+row alone.**
+
+**Macro F1 is the mean of 15 F1s, not the F1 of the two macro means.** Proposed
+the second; it gives 0.9298 against 0.9261. Computing per class applies the
+harmonic penalty fifteen times, once to each class; computing at the end lets
+frog-eye's high precision cover alternaria's low one, and the penalty disappears
+in the averaging.
+
+### Micro is accuracy, and was measured to prove it
+
+Micro sums first and divides once: TP over all classes, FP over all classes, FN
+over all classes.
+
+```
+micro precision   0.8984962406015038
+micro recall      0.8984962406015038
+accuracy          0.8984962406015038
+```
+
+FP_sum and FN_sum are the same sum, because every off-diagonal cell is one
+class's false alarm and another's miss — "one mistake, counted twice" summed
+over the matrix. So micro precision = micro recall = accuracy, and micro F1, a
+harmonic mean of two equal numbers, is that number again.
+
+**This is a property of the matrix, not of this model or this data.** Reported
+nowhere, measured once so that four names are known to be one number. A paper
+quoting micro F1 on single-label classification is quoting accuracy.
+
+### What `metrics.py` ended up as
+
+`per_class_recall`, `per_class_precision`, `per_class_specificity` take the
+matrix and nothing else. `per_class_f1` takes the two arrays instead, so that
+`summarize_matrix` can compute precision and recall once and pass them in, and
+**the F1 formula lives in one place.** `summarize_matrix` returns accuracy and
+the three macro means as a dict, one row of a table; `baseline.py` unpacks it
+with `**` and adds `rows`, `classes` and `majority_class`, so both tables in the
+project have the same columns in the same order and come from the same code.
+
+A regression, written and removed: `np.nan_to_num(..., nan=0.0)` on precision
+and recall inside `summarize_matrix`. It turns the `nan` back into the zero this
+step had already rejected, and it reproduces sklearn's behaviour by accident.
+**On all four matrices it changes no number, which is exactly what makes it
+dangerous** — it would have been silent until some distance failed to name a
+class, and that happens on 307 rows. On recall it was dead code as well, since
+recall cannot be `nan` under the 1.4 class list.
+
+The `where=denom > 0` guard in `per_class_f1` covers two cases and returns 0 for
+both: P = R = 0, and precision `nan`, which fails the comparison and takes the
+same branch. Zero is right in both — as 2TP/(2TP+FP+FN) the denominator holds
+the support. It was written for the first case and catches the second by
+accident, so it now carries a comment saying so.
+
+`Vector = np.ndarray | pd.Series` was not used for these signatures: the
+per-class functions always return `np.ndarray`, and the alias would promise a
+`pd.Series` that was never tested.
+
+### Macro precision is the weaker claim
+
+Macro precision is above macro recall in every row of the table, and the reason
+is structural. An error leaves one row and is shared out among several columns.
+Phyllosticta loses 4 of its 10 plants on 266 and its recall falls by 0.400. The
+same 4 land in two columns: alternaria 35/48 → 35/51, down 0.043, and brown-spot
+37/40 → 37/41, down 0.023. Together 0.066 against 0.400.
+
+**A small class carries its own misses alone and lends its false alarms to large
+ones.** Under imbalance macro recall is the strict measure, and "the model
+recognises the disease" sounds better stated as precision than it is.
+
+### The 307 row was stale, and Hamming's 307 number is a trap
+
+`PLAN.md` carried Gower on 307 rows as accuracy 0.8827, macro recall 0.8263.
+Re-run under current code: 0.8860 and 0.8276, one plant different — 272 correct
+against 271. Not the sort: `kind="quicksort"` gives 273, so neither figure is
+the pre-stable one. The number predates three steps of changes to `knn.py` and
+had never been re-measured. **Plan numbers age; the four distances on 266 were
+re-run in 1.4, this one was not.**
+
+```
+gower, 307 rows     accuracy 0.8860   macro precision NaN   macro recall 0.8276   macro F1 0.8253
+```
+
+Predicted the `NaN` correctly, for the wrong reason: that missing values in the
+data propagate into the average. They do not — `per_class_precision` returns
+`nan` for an empty column. On 307 rows the never-predicted classes are
+`2-4-d-injury` (1 case) and `herbicide-injury` (4), both of which the 266 filter
+removes entirely. **The single-case class cannot be predicted at all under
+leave-one-out**: when its one plant is the test plant, no plant of its class is
+left in the data. Its recall is 0 by construction and its column can stay empty
+for ever. Two different `nan`s meet here: a hole in a plant's measurements, and
+a statement that a name was never used.
+
+Hamming on 307 gives 0.8697, above its 0.8609 on 266 and close to Gower's
+0.8860. It is not a better model on the harder set. Hamming is
+`(a != b).sum()`, and `nan != nan` is `True`, so **a hole counts as evidence of
+difference**: two plants unmeasured in the same column are pushed apart as if
+they had been measured and disagreed. Manhattan and Euclidean return `nan` and
+`argsort` files those rows last, so they are simply never chosen as neighbours —
+0.7524 and 0.7264. Only Gower compares the columns that exist and divides by
+how many it compared.
+
+Fifth way to obtain a convincing number that measures something else, after
+`1 / nunique`, zero for an empty column, `np.nanmean`, and micro F1.
+
+### The denominator, three more times
+
+Still the same slip, and still the same shape: a denominator borrowed from
+another measure.
+
+- Phyllosticta's specificity as 2/256 — the miss fraction again, where the
+  measure counts what went right: 254/256.
+- Precision's 0.750 read as a division by 10 or by 15. It is 6/8, the column.
+  Support and class count belong to recall and to the macro average.
+- Phyllosticta's 4 losses costing alternaria "7.5%" and brown-spot "2.5%" —
+  computed over 40, which is support. The columns are 51 and 41, and the true
+  costs are 0.043 and 0.023.
+
+**Every hand-computation error in 1.5 was a denominator, none was an
+arithmetic slip.** The numerators were always right.
+
+### Open
+
+- `Vector` is defined identically in three files.
+- `per_class_specificity` has no caller until ROC in phase 2.
+- Whether 1.6 wants F-beta rather than F1, once a missed infection and an
+  unnecessary spray stop costing the same.
