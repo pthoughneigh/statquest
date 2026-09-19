@@ -1217,3 +1217,159 @@ site. A matrix that had lost rows would still return a plausible accuracy,
 since numerator and denominator both come from it. Putting the check outside
 would mean returning the matrix to a caller that has no other use for it —
 the 1.3 rule about a counter escaping `knn`, in a second place.
+
+
+## 1.5 — Precision, and two ways to average
+*2026-09-17*
+
+Nothing new is computed here either. Precision was already in the 1.4 matrix;
+what was missing was the reading. Recall divides the diagonal by its row,
+precision divides the same diagonal by its column, and
+`matrix[actual, predicted]` is what makes the row the disease and the column the
+answer.
+
+### One mistake, counted twice
+
+Every off-diagonal cell belongs to one row and one column, so it is two errors
+at once: a miss for the disease the plant has, a false alarm for the disease the
+model named. The 11 frog-eye plants called alternaria in 1.4 are the same 11 in
+both readings — frog-eye's row, alternaria's column.
+
+That gives a mirror pair under Gower:
+
+    frog-eye     recall 28/40 = 0.700    precision 28/30 = 0.933
+    alternaria   recall 35/40 = 0.875    precision 35/51 = 0.686
+
+Frog-eye is missed one time in three and is almost never wrong when named.
+Alternaria is caught well and is the least trustworthy name in the model: of the
+51 plants given that name, 16 do not have it — 11 frog-eye, 3 phyllosticta, 2
+brown-spot. Its column is where the other leaf spots' errors collect. 1.4's
+asymmetry, measured on the metric it damages.
+
+The same shape in miniature, and cheap to check by hand: bacterial-pustule has
+recall 0.800 and precision 1.000, bacterial-blight recall 1.000 and precision
+0.833. Two plants explain all four numbers. Blight misses nothing and still does
+not reach precision 1.0 — a class can be perfect in its row and imperfect in its
+column.
+
+### Precision is a reading, not a cause
+
+Predicted that Hamming's three extra phyllosticta losses would go to brown-spot
+rather than alternaria — right (brown-spot 1 → 4, alternaria stays at 3), but
+the reason given was alternaria's precision. Wrong number (0.686, the lowest in
+the model) and wrong kind of number.
+
+Precision is computed after every answer is in. The model, at the moment it
+decides, sees five distances and counts votes; it has no access to any metric
+about itself. An explanation of where an error goes must come from something
+visible at decision time. Here that is Hamming: it scores each column 0 or 1 and
+cannot tell one step from three, so the ordinal degree separating the three leaf
+spots disappears, and brown-spot — 40 plants, tied with alternaria and frog-eye
+for the largest class on 266 — wins the vote more often.
+
+**A right answer can arrive with the wrong mechanism**, which is why the reason
+is asked for and not only the band.
+
+### The empty column
+
+Recall cannot be 0/0 here: the class list comes from the cases actually present,
+decided in 1.4, so every row holds at least one plant. That guarantee lives at
+the call site, not in the function, and stays written there.
+
+Precision can be. An empty column means the model never once said that name —
+not that it was wrong, and not that the class is missing from the data. Three
+possible returns: 0, `nan`, or drop the class.
+
+**`nan`, for the same reason `make_gower` returns `nan` on an empty mask in
+1.2.** Zero asserts that the model was wrong every time it used a name it never
+used. Sklearn does return 0 there, with a warning.
+
+Dropping is worse, and `np.nanmean` does exactly that. A model naming 2 of 15
+classes at precision 0.90 then beats a model naming all 15 at 0.75: silence
+about thirteen diseases is rewarded, because the average is taken only over the
+names the model chose to risk. `np.mean` instead carries one `nan` up to the
+model, where it says that macro precision for this model does not exist.
+
+Predicted that a `nan` in the summary gives no information — wrong, and
+backwards. Accuracy exists for the baseline and is 0.1504; the `nan` beside it
+is the fact that 14 of 15 diseases were never named at all, which no other
+number in that row states.
+
+### Fixed before the division, not suppressed after
+
+`per_class_precision` replaces the zero in the denominator before dividing, so
+there is no 0/0 anywhere and `np.errstate` is not needed — verified under
+`np.errstate(all="raise")`, which raises nothing. Dividing first and silencing
+the warning afterwards would have been the worse half of the same fix.
+`np.where(..., np.nan)` also promotes int64 to float64, which is what lets the
+`nan` survive into the array instead of becoming 0 in an integer division.
+
+Both functions take the matrix and nothing else: no data, no `y_true`, no class
+list.
+
+### The baseline's precision is its accuracy
+
+`majority_class_baseline` now reads both: 14 `nan` of 15 on the 266 complete
+rows, 18 of 19 on all 307. The one real number is brown-spot's 0.1504, which
+equals that row's accuracy exactly, and phytophthora-rot's 0.1303 equals the
+other's. Not a coincidence: every plant is predicted brown-spot, so its column
+is the whole data set, and TP over the column sum is the trace over the total.
+In the degenerate model the two readings collapse into one.
+
+### Accuracy is macro recall, weighted by support
+
+Both come out of the same 15 numbers. Macro recall gives every class 1/15.
+Accuracy gives every class its share of plants, because support × recall is that
+class's diagonal cell, so the support-weighted sum of the 15 recalls is the
+trace. Checked on Gower: 0.8984962406015038, identical to
+`np.trace(cm) / cm.sum()` to the last digit.
+
+So macro recall sits above accuracy exactly when the small classes have the
+better recall, and below when they have the worse. Under Gower it is strongly
+the first case. Nine of 15 classes have recall 1.000 and all nine are small —
+106 of 266 plants. They hold 9/15 = 60% of macro recall and contribute 0.600 of
+its 0.9233, against 106/266 = 40% of accuracy. Every error is inside the three
+large leaf spots.
+
+    Gower     accuracy 0.8985   macro recall 0.9233   gap 0.025
+    Hamming   accuracy 0.8609   macro recall 0.8658   gap 0.005
+
+Predicted Hamming's macro recall above its accuracy — right, no reason offered,
+and the size is the interesting part: the gap is five times smaller. Hamming is
+better than Gower in the two largest classes (alternaria 0.900 against 0.875,
+brown-spot 0.950 against 0.925) and pays in the small ones: phyllosticta falls
+to 0.300, bacterial-pustule to 0.600, and only five classes stay at 1.000. A bad
+small class costs a full fifteenth of macro recall and 10 plants of 266 in
+accuracy. That is what closes the gap.
+
+1.1's report card and 1.3's two verdicts on one model, now with the arithmetic:
+one set of readings, two weightings, and the question each answers is how many
+plants against how many diseases.
+
+### The denominator, three times wrong
+
+Every hand-computation slip in this step was the denominator, and each time it
+came from a measure other than the one being computed.
+
+- Frog-eye's precision, before the definition landed: 28 over 266. That is
+  accuracy's denominator.
+- Then 2/2, once the column was found: the false alarms alone, with the diagonal
+  left out of its own denominator.
+- Then 12/40 = 0.3 and 4/10 = 0.4 offered as recalls. Those are the miss
+  fractions. Recall counts what was found: 0.700 and 0.600.
+
+The third changed an answer and not only a number: it inverted which class is
+weaker, and phyllosticta at 0.600 is the lowest recall in the model.
+
+Same root, twice more. The gap between accuracy and macro recall was first
+explained by true negatives; TN appears in neither measure, and specificity is
+the only metric in this step that uses it. And frog-eye was predicted to hurt
+macro recall more than phyllosticta because it misses 12 plants against 4 —
+accuracy's rule applied to a macro average, where 12 of 40 is a smaller hole
+than 4 of 10.
+
+### Open
+
+Sensitivity and specificity, F1, and micro averaging are still ahead in 1.5.
+Specificity is the first metric here that uses TN, and with 15 classes TN is
+most of every one-vs-rest table.

@@ -5,7 +5,11 @@ import pandas as pd
 from matplotlib import pyplot as plt
 
 from statquest.phase0_foundation.load_soyabeans import load_soyabeans_csv
-from statquest.phase1_evaluation.metrics import confusion_matrix
+from statquest.phase1_evaluation.metrics import (
+    confusion_matrix,
+    per_class_precision,
+    per_class_recall,
+)
 
 
 def majority_class_baseline(classes: pd.Series) -> dict:
@@ -23,21 +27,25 @@ def majority_class_baseline(classes: pd.Series) -> dict:
 
     # Macro recall equals 1 / n_classes here only because one class gets
     # recall 1 and every other class 0; for any other model it would not.
-    support = cm.sum(axis=1)
-    per_class_recall = np.diag(cm) / support
+    recall = per_class_recall(cm)
+    macro_precision = per_class_precision(cm).mean()
     accuracy = np.trace(cm) / cm.sum()
-    macro_recall = per_class_recall.mean()
+    macro_recall = recall.mean()
 
     return {
         "rows": len(classes),
         "classes": len(unique_classes),
         "majority_class": majority_class,
         "accuracy": accuracy,
+        "precision": macro_precision,
         "macro_recall": macro_recall,
     }
 
 
 if __name__ == "__main__":
+    pd.set_option("display.max_rows", None)
+    pd.set_option("display.max_columns", None)
+
     plots_path = Path(__file__).parents[3] / "figures"
     plots_path.mkdir(parents=True, exist_ok=True)
 
