@@ -5,11 +5,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 
 from statquest.phase0_foundation.load_soyabeans import load_soyabeans_csv
-from statquest.phase1_evaluation.metrics import (
-    confusion_matrix,
-    per_class_precision,
-    per_class_recall,
-)
+from statquest.phase1_evaluation.metrics import confusion_matrix, summarize_matrix
 
 
 def majority_class_baseline(classes: pd.Series) -> dict:
@@ -25,20 +21,13 @@ def majority_class_baseline(classes: pd.Series) -> dict:
     # numerator and denominator would come from the same broken matrix.
     assert cm.sum() == len(classes)
 
-    # Macro recall equals 1 / n_classes here only because one class gets
-    # recall 1 and every other class 0; for any other model it would not.
-    recall = per_class_recall(cm)
-    macro_precision = per_class_precision(cm).mean()
-    accuracy = np.trace(cm) / cm.sum()
-    macro_recall = recall.mean()
-
     return {
         "rows": len(classes),
         "classes": len(unique_classes),
         "majority_class": majority_class,
-        "accuracy": accuracy,
-        "precision": macro_precision,
-        "macro_recall": macro_recall,
+        # Macro recall equals 1 / n_classes here only because one class gets
+        # recall 1 and every other class 0; for any other model it would not.
+        **summarize_matrix(cm),
     }
 
 

@@ -58,7 +58,6 @@ if __name__ == "__main__":
         "euclidean_distance": euclidean_distance,
     }
 
-    summaries = {}
     rows = []
 
     for dist_name, dist in distances.items():
@@ -102,4 +101,3 @@ if __name__ == "__main__":
 
     summary = pd.DataFrame(rows).set_index("distance")
     print(summary.round(4))
-    print(unique_classes)
