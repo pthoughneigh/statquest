@@ -73,3 +73,23 @@ def summarize_matrix(conf_matrix: np.ndarray) -> dict:
         "macro_recall": float(recall.mean()),
         "macro_f1": float(f1.mean()),
     }
+
+def roc_curve(y_true_binary: np.ndarray, scores: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    n_denominator = (y_true_binary==0).sum()
+    p_denominator = y_true_binary.sum()
+
+    fpr = []
+    tpr = []
+
+    thresholds = np.concatenate(([np.inf], np.unique(scores)[::-1]))
+
+    for t in thresholds:
+        scores_mask = scores >= t
+
+        TP = y_true_binary[scores_mask].sum()
+        FP = (y_true_binary[scores_mask] == 0).sum()
+
+        tpr.append(TP / p_denominator)
+        fpr.append(FP / n_denominator)
+
+    return np.array(fpr), np.array(tpr), thresholds
