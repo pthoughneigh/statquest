@@ -74,8 +74,11 @@ def summarize_matrix(conf_matrix: np.ndarray) -> dict:
         "macro_f1": float(f1.mean()),
     }
 
-def roc_curve(y_true_binary: np.ndarray, scores: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    n_denominator = (y_true_binary==0).sum()
+
+def roc_curve(
+    y_true_binary: np.ndarray, scores: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    n_denominator = (y_true_binary == 0).sum()
     p_denominator = y_true_binary.sum()
 
     fpr = []
@@ -93,3 +96,23 @@ def roc_curve(y_true_binary: np.ndarray, scores: np.ndarray) -> tuple[np.ndarray
         fpr.append(FP / n_denominator)
 
     return np.array(fpr), np.array(tpr), thresholds
+
+
+def auc(fpr: np.ndarray, tpr: np.ndarray) -> float:
+    widths = np.diff(fpr)
+    heights = (tpr[:-1] + tpr[1:]) / 2
+
+    return float(np.sum(widths * heights))
+
+
+def auc_from_pairs(y_true_binary: np.ndarray, scores: np.ndarray) -> float:
+    positive = y_true_binary == 1
+    negative = y_true_binary == 0
+
+    positive_scores = scores[positive][:, np.newaxis]
+    negative_scores = scores[negative]
+
+    wins = positive_scores > negative_scores
+    ties = positive_scores == negative_scores
+
+    return float((wins.sum() + ties.sum() / 2) / wins.size)
