@@ -36,7 +36,12 @@ def knn(
 
 if __name__ == "__main__":
     from statquest.phase0_foundation.load_soyabeans import load_soyabeans_csv
-    from statquest.phase1_evaluation.metrics import confusion_matrix, summarize_matrix
+    from statquest.phase1_evaluation.metrics import (
+        auc,
+        confusion_matrix,
+        roc_curve,
+        summarize_matrix,
+    )
 
     pd.set_option("display.max_rows", None)
     pd.set_option("display.max_columns", None)
@@ -51,6 +56,9 @@ if __name__ == "__main__":
 
     gower = make_gower(data_wo_classes_complete_rows)
 
+    unique_classes = np.unique(data_classes_per_row_complete_rows)
+    k = 5
+
     distances = {
         "gower": gower,
         "manhattan_distance": manhattan_distance,
@@ -63,6 +71,7 @@ if __name__ == "__main__":
     for dist_name, dist in distances.items():
         actual_classes = []
         predicted_classes = []
+        score_rows = []
 
         for position in range(len(data_wo_classes_complete_rows)):
             class_actual = data_classes_per_row_complete_rows.iloc[position]
@@ -81,23 +90,38 @@ if __name__ == "__main__":
                 == len(data_wo_classes_complete_rows) - 1
             )
 
-            class_predicted, _ = knn(
+            class_predicted, votes = knn(
                 data_wo_classes_complete_rows_keep,
                 data_classes_per_row_complete_rows_keep,
                 test_plant,
-                5,
+                k,
                 dist,
             )
+            score_row = (votes.reindex(unique_classes, fill_value=0) / k).to_numpy()
+            score_rows.append(score_row)
 
             actual_classes.append(class_actual)
             predicted_classes.append(class_predicted)
 
-        unique_classes = np.unique(data_classes_per_row_complete_rows)
-        matrix = confusion_matrix(
-            np.array(actual_classes), np.array(predicted_classes), unique_classes
-        )
+        scores = np.array(score_rows)
 
-        rows.append({"distance": dist_name, **summarize_matrix(matrix)})
+        actual = np.array(actual_classes)
+        class_aucs = []
+
+        for i, uclass in enumerate(unique_classes):
+            y_true_binary = actual == uclass
+            fpr, tpr, _ = roc_curve(y_true_binary, scores[:, i])
+            class_aucs.append(auc(fpr, tpr))
+
+        matrix = confusion_matrix(actual, np.array(predicted_classes), unique_classes)
+
+        rows.append(
+            {
+                "distance": dist_name,
+                **summarize_matrix(matrix),
+                "macro_auc": np.mean(class_aucs),
+            }
+        )
 
     summary = pd.DataFrame(rows).set_index("distance")
     print(summary.round(4))
