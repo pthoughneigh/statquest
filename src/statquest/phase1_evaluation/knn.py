@@ -38,6 +38,7 @@ if __name__ == "__main__":
     from statquest.phase0_foundation.load_soyabeans import load_soyabeans_csv
     from statquest.phase1_evaluation.metrics import (
         auc,
+        auc_from_pairs,
         confusion_matrix,
         roc_curve,
         summarize_matrix,
@@ -111,7 +112,15 @@ if __name__ == "__main__":
         for i, uclass in enumerate(unique_classes):
             y_true_binary = actual == uclass
             fpr, tpr, _ = roc_curve(y_true_binary, scores[:, i])
-            class_aucs.append(auc(fpr, tpr))
+
+            auc_from_roc = auc(fpr, tpr)
+            auc_from_scores = auc_from_pairs(y_true_binary, scores[:, i])
+            assert np.isclose(auc_from_roc, auc_from_scores), (
+                f"AUC from ROC and AUC from scores are not the same values on class "
+                f"'{uclass}': {auc_from_roc} =/= {auc_from_scores}"
+            )
+
+            class_aucs.append(auc_from_roc)
 
         matrix = confusion_matrix(actual, np.array(predicted_classes), unique_classes)
 
