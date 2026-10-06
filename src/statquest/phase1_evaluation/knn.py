@@ -16,13 +16,13 @@ Vector = np.ndarray | pd.Series
 
 
 def knn(
-    data_frame: pd.DataFrame,
+    features: pd.DataFrame,
     classes: Vector,
     plant: Vector,
     k: int,
     distance_function: Callable[[Vector, Vector], float],
 ) -> tuple[str, pd.Series]:
-    rows = np.asarray(data_frame, dtype=float)
+    rows = np.asarray(features, dtype=float)
 
     distances = np.array([distance_function(plant, row) for row in rows])
     nearest_positions = np.argsort(distances, kind="stable")[:k]
@@ -90,13 +90,7 @@ if __name__ == "__main__":
 
             assert len(train_features) == len(train_classes) == len(features) - 1
 
-            predicted_class, votes = knn(
-                train_features,
-                train_classes,
-                test_plant,
-                k,
-                dist,
-            )
+            predicted_class, votes = knn(train_features, train_classes, test_plant, k, dist)
             score_row = (votes.reindex(unique_classes, fill_value=0) / k).to_numpy()
             score_rows.append(score_row)
 
@@ -139,11 +133,11 @@ if __name__ == "__main__":
 
     gower_results = results_per_distance["gower"]
     matrix = gower_results["matrix"]
-    class_to_check = ["brown-spot", "frog-eye-leaf-spot"]
+    classes_to_plot = ["brown-spot", "frog-eye-leaf-spot"]
 
     plots_path = Path(__file__).parents[3] / "figures"
     plots_path.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(nrows=1, ncols=len(class_to_check), figsize=(24, 8))
+    fig, axes = plt.subplots(nrows=1, ncols=len(class_to_check), figsize=(24, 8))
 
     for i, class_name in enumerate(class_to_check):
         y_true_binary = gower_results["actual"] == class_name
@@ -155,24 +149,24 @@ if __name__ == "__main__":
         knn_tpr = per_class_recall(matrix)[class_index]
         auc_from_roc = auc(fpr, tpr)
 
-        ax[i].plot(fpr, tpr, marker="o", label="ROC curve")
-        ax[i].plot([0, 1], [0, 1], "r--", label="Random classifier")
-        ax[i].scatter(
+        axes[i].plot(fpr, tpr, marker="o", label="ROC curve")
+        axes[i].plot([0, 1], [0, 1], "r--", label="Random classifier")
+        axes[i].scatter(
             knn_fpr, knn_tpr, marker="x", s=100, color="green", label="KNN (Gower)"
         )
-        ax[i].set_title(f"'{class_name}' ROC curve - AUC: {auc_from_roc:.4f}")
-        ax[i].set_xlabel("FPR (1 − specificity)")
-        ax[i].set_ylabel("TPR (recall)")
-        ax[i].set_aspect("equal")
+        axes[i].set_title(f"'{class_name}' ROC curve - AUC: {auc_from_roc:.4f}")
+        axes[i].set_xlabel("FPR (1 − specificity)")
+        axes[i].set_ylabel("TPR (recall)")
+        axes[i].set_aspect("equal")
 
         offsets = [(8, -5), (8, -5), (5, -5), (5, -6), (8, -8), (8, 5), (-44, 5)]
 
         for (x, y), offset in zip(zip(fpr, tpr), offsets):
-            ax[i].annotate(
+            axes[i].annotate(
                 f"({x:.2f}, {y:.2f})", (x, y), xytext=offset, textcoords="offset points"
             )
 
-        ax[i].annotate(
+        axes[i].annotate(
             f"KNN (Gower)\n({knn_fpr:.2f}, {knn_tpr:.2f})",
             xy=(knn_fpr, knn_tpr),
             xytext=(-80, -10),
@@ -181,7 +175,7 @@ if __name__ == "__main__":
             arrowprops={"arrowstyle": "->"},
         )
 
-        ax[i].legend()
+        axes[i].legend()
 
     fig.savefig(
         plots_path / "gower_knn_per_class_roc.png", dpi=300, bbox_inches="tight"

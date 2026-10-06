@@ -17,21 +17,21 @@ def euclidean_distance(a: Vector, b: Vector) -> float:
 
 
 def hamming_distance(a: Vector, b: Vector) -> float:
-    return (a != b).sum()
+    return float((a != b).sum())
 
 
 def manhattan_distance(a: Vector, b: Vector) -> float:
-    return np.sum(np.abs(a - b))
+    return float(np.sum(np.abs(a - b)))
 
 
-def make_gower(data_frame: pd.DataFrame) -> Callable[[Vector, Vector], float]:
-    data_frame_columns = data_frame.columns
+def make_gower(features: pd.DataFrame) -> Callable[[Vector, Vector], float]:
+    columns = features.columns
 
-    ordinal_ranges = {c: data_frame[c].max() - data_frame[c].min() for c in ORDINAL}
+    ordinal_ranges = {c: features[c].max() - features[c].min() for c in ORDINAL}
 
     def gower(a: Vector, b: Vector) -> float:
         score, n = 0.0, 0
-        for i, col in enumerate(data_frame_columns):
+        for i, col in enumerate(columns):
             x, y = a[i], b[i]
             if pd.isna(x) or pd.isna(y):
                 continue
