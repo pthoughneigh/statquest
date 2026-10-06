@@ -1,4 +1,3 @@
-import sys
 from pathlib import Path
 
 import pandas as pd
@@ -9,13 +8,9 @@ path = Path(__file__).parents[3] / soyabeans_path
 
 
 def load_soyabeans_csv() -> pd.DataFrame:
-    try:
-        data = pd.read_csv(path, header=None, na_values="?")
-        data.columns = names
-        return data
-    except FileNotFoundError:
-        print(f"File {soyabeans_path} not found")
-        sys.exit()
+    data = pd.read_csv(path, header=None, na_values="?")
+    data.columns = names
+    return data
 
 
 names = [
