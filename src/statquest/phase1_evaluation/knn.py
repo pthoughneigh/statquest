@@ -1,4 +1,6 @@
 from collections.abc import Callable
+from matplotlib import pyplot as plt
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -42,6 +44,8 @@ if __name__ == "__main__":
         confusion_matrix,
         roc_curve,
         summarize_matrix,
+        per_class_specificity,
+        per_class_recall
     )
 
     pd.set_option("display.max_rows", None)
@@ -68,6 +72,7 @@ if __name__ == "__main__":
     }
 
     rows = []
+    scores_per_distance = {}
 
     for dist_name, dist in distances.items():
         actual_classes = []
@@ -131,6 +136,65 @@ if __name__ == "__main__":
                 "macro_auc": np.mean(class_aucs),
             }
         )
+
+        scores_per_distance[dist_name] = {"scores": scores, "actual": actual, "matrix": matrix}
+
+    gower_results = scores_per_distance['gower']
+    matrix = gower_results['matrix']
+    class_to_check = ['brown-spot', 'frog-eye-leaf-spot']
+
+    plots_path = Path(__file__).parents[3] / "figures"
+    plots_path.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(nrows=1, ncols=len(class_to_check), figsize=(24, 8))
+
+    for i, class_name in enumerate(class_to_check):
+        y_true_binary = gower_results['actual'] == class_name
+        class_index = np.where(unique_classes == class_name)[0][0]
+        class_scores_column = gower_results['scores'][:, class_index]
+
+        fpr, tpr, _ = roc_curve(y_true_binary, class_scores_column)
+        knn_fpr = 1 - per_class_specificity(matrix)[class_index]
+        knn_tpr = per_class_recall(matrix)[class_index]
+        auc_from_roc = auc(fpr, tpr)
+
+        ax[i].plot(fpr, tpr, marker="o", label="ROC curve")
+        ax[i].plot([0, 1], [0, 1], "r--", label="Random classifier")
+        ax[i].scatter(knn_fpr, knn_tpr, marker="x", s=100, color="green", label='KNN (Gower)')
+        ax[i].set_title(f"'{class_name}' ROC curve - AUC: {auc_from_roc:.4f}")
+        ax[i].set_xlabel("FPR (1 − specificity)")
+        ax[i].set_ylabel("TPR (recall)")
+        ax[i].set_aspect("equal")
+
+        offsets = [
+            (8, -5),
+            (8, -5),
+            (5, -5),
+            (5, -6),
+            (8, -8),
+            (8, 5),
+            (-44, 5)
+        ]
+
+        for (x, y), offset in zip(zip(fpr, tpr), offsets):
+            ax[i].annotate(
+                f"({x:.2f}, {y:.2f})",
+                (x, y),
+                xytext=offset,
+                textcoords="offset points"
+            )
+
+        ax[i].annotate(
+            f"KNN (Gower)\n({knn_fpr:.2f}, {knn_tpr:.2f})",
+            xy=(knn_fpr, knn_tpr),
+            xytext=(-80, -10),
+            textcoords="offset points",
+            fontsize=10,
+            arrowprops=dict(arrowstyle="->")
+        )
+
+        ax[i].legend()
+
+    fig.savefig(plots_path / "gower_knn_per_class_roc.png", dpi=300, bbox_inches="tight")
 
     summary = pd.DataFrame(rows).set_index("distance")
     print(summary.round(4))
