@@ -1579,3 +1579,402 @@ arithmetic slip.** The numerators were always right.
 - `per_class_specificity` has no caller until ROC in phase 2.
 - Whether 1.6 wants F-beta rather than F1, once a missed infection and an
   unnecessary spray stop costing the same.
+
+## 1.6 — ROC, AUC, and where to stand on the curve
+*2026-09-28 – 2026-10-06*
+
+1.4 and 1.5 read one decision per plant. 1.6 keeps the evidence behind the
+decision, the vote share, and asks what every possible decision would cost:
+three functions in `metrics.py`, a ten-plant toy, the curves of the real
+classes, the plan's question (a missed infection costs a field, a false alarm
+one spray, so where on the curve do you stand?), one deliberate break, and a
+figure.
+
+### Three functions, and the decisions inside them
+
+`roc_curve(y_true_binary, scores) -> (fpr, tpr, thresholds)`. P and N are
+counted once, before any threshold. The thresholds are the unique scores,
+highest first, with `inf` in front, so (0, 0) is not a special case but the
+point of the threshold no plant passes. A plant is named when `score >= t`.
+**The thresholds are returned, not only the rates**, because a point on the
+curve is where you stand, and the threshold is the rule you hand the farmer.
+
+`auc(fpr, tpr)` is the trapezoid sum written out: widths `np.diff(fpr)` times
+the mean of neighbouring heights. `auc_from_pairs(y_true_binary, scores)` is the
+other definition: the share of (positive, negative) pairs in which the positive
+plant scores higher, a tie counted ½, by broadcasting a column of positive
+scores against the row of negative ones.
+
+Walking the **unique** scores, not the plants one by one, means tied plants
+enter the curve together and the result does not depend on row order. Walking a
+sorted array plant by plant would let the sort decide. 1.4's tie rule, third
+appearance.
+
+`scikit-learn` came in as a **dev** dependency, the reference and nothing more;
+nothing in `src` imports it. Its functions share names with these, so in `z.py`
+they are imported under an alias, or one shadows the other and the comparison
+is a function against itself.
+
+### The toy
+
+Ten plants, one question: is this brown-spot?
+
+```
+score      1.0  0.8  0.8  0.6  0.6  0.4  0.4  0.2  0.0  0.0
+true        T    T    T    T    F    T    F    T    F    F
+
+threshold  inf    1.0      0.8      0.6        0.4        0.2        0.0
+point      (0,0)  (0,1/6)  (0,3/6)  (1/4,4/6)  (2/4,5/6)  (2/4,6/6)  (1,1)
+
+area   7/48 + 9/48 + 24/48 = 40/48 = 5/6
+pairs  19 wins + 2 ties × ½ = 20 of 6 × 4 = 24  ->  5/6
+```
+
+Each T moves the point up by 1/P, each F right by 1/N, and a T and an F with
+the same score enter together, so that step is diagonal. At `k = 5` a score has
+six levels, so a curve has at most seven points, counting (0, 0).
+
+**Why a tie is worth ½.** If the tied T entered first, the curve would go up and
+then right, and the pair would be worth 1. If the F entered first, right and
+then up, worth 0. Entering together, the diagonal is the average of the two
+orders. Column by column the two definitions are one: each F plant is a strip of
+width 1/N whose height is the share of T plants that beat it. The F at 0.6
+gives 3.5/24 = 7/48, the F at 0.4 gives 4.5/24 = 9/48, the two F at 0.0 give
+12/24. A constant score makes all 24 pairs ties, worth 12: AUC 0.5, the
+diagonal.
+
+### sklearn's defaults are decisions
+
+`sklearn.metrics.roc_curve` returns 6 points on the toy, not 7.
+`drop_intermediate=True` drops every point whose step in equals its step out,
+and the one dropped is (1/4, 4/6), the diagonal tie point itself. With
+`drop_intermediate=False` all three arrays match under `np.allclose`, `inf`
+included. `roc_auc_score` builds its curve with the default and sums a different
+set of trapezoids: 0.8333333333333334 against 0.8333333333333333. Same area,
+different rounding path. **AUCs are compared with `isclose`**, including the two
+functions here against each other; on the real frog-eye column they differ in
+the last digit too. Same lesson as `read_csv` in 0.2: a default is somebody's
+decision.
+
+### The score matrix
+
+The votes `knn` already returned, and `__main__` had been throwing into `_`:
+`votes.reindex(unique_classes, fill_value=0) / k`, one row per plant, shape
+`(266, 15)`, every row summing to 1, six possible values. Under Gower only 70 of
+the 266 rows are distinct; the commonest are five votes for brown-spot (27
+plants) and five for frog-eye (24).
+
+Two curves under Gower, P = 40, N = 226:
+
+```
+             threshold  inf  1.0    0.8     0.6     0.4     0.2     0.0
+brown-spot   FPR        0    0      0.0088  0.0177  0.0398  0.1327  1
+             TPR        0    0.675  0.85    0.925   0.95    0.975   1
+frog-eye     FPR        0    0      0       0.0088  0.0575  0.1858  1
+             TPR        0    0.6    0.625   0.65    0.8     0.95    1
+```
+
+### The curve belongs to the score, not to the model
+
+The 1.4 classifier is itself one point on each class's graph:
+(1 − specificity, recall). For brown-spot it is (0.0177, 0.925), **exactly** the
+threshold-0.6 point: 3 votes of 5 is a majority nothing can beat, and no
+brown-spot plant with 2 votes was named brown-spot. For frog-eye it is
+(0.0088, 0.700), **above** the curve, whose point at that FPR is (0.0088, 0.65).
+The gap is 2 plants. Of the 17 plants with exactly 2 frog-eye votes, 6 frog-eye
+and 11 not, `knn` named 2 frog-eye plants and none of the others, through
+2+1+1+1 or a 2–2 tie won by the nearer neighbour. No threshold on the frog-eye
+column can do that, because it sees all 17 as 0.4. The vote share for one class
+throws away how the other votes split, and `knn` uses it.
+
+Across 15 classes: 10 operating points sit on a curve point, 3 on a segment,
+and 2 above the curve, frog-eye and alternaria.
+
+### Macro AUC reverses the ranking, on two plants
+
+```
+                    accuracy  macro_precision  macro_recall  macro_f1  macro_auc
+gower                 0.8985           0.9364        0.9233    0.9261     0.9845
+manhattan_distance    0.8684           0.9213        0.8800    0.8868     0.9900
+hamming_distance      0.8609           0.8992        0.8658    0.8708     0.9910
+euclidean_distance    0.8383           0.8766        0.8292    0.8374     0.9769
+```
+
+1.5's "same order under every measure" does not survive: Hamming first, Gower
+third. Of the 0.0065 between them, 0.0059 comes from two 10-plant classes, and in
+each, under Gower, one plant got **no vote at all** for its own class: rows 138
+(bacterial-pustule) and 185 (phyllosticta). Such a plant ties with about 250
+negatives at score 0 and earns half of those pairs, 127 of a possible 256 for
+the bacterial-pustule plant. That is 0.05 of its class's AUC, and macro weights
+that class like a 40-plant one. With those two plants at 0.4, Gower's macro AUC
+would be 0.9913, above Hamming's 0.9910. Accuracy counts each of them as one
+error in 266. The distances differ in *how* they miss: 6 zero-vote plants under
+Gower, 4 under Hamming.
+
+`macro_auc` is `np.mean` over a plain list, because `np.mean` on a pandas Series
+quietly skips `nan`, which 1.5 rejected.
+
+### Where to stand: the bill
+
+AUC grades a score over every threshold at once; a farmer gets one rule. The
+plan's question puts a price on each error. Asked for two prices, the first
+answer was "it depends", with the parts: a spray costs chemicals, time, labour
+and fuel; a miss costs part of the field or all of it; and **if the spray itself
+harms the plant, a false alarm costs more than its bill for chemicals.** All of
+it goes into two numbers. A false alarm costs 1, one spray. A miss costs c
+sprays. Chosen: c = 3.
+
+**The bill of a threshold is c × misses + false alarms.** Misses are T plants
+below the threshold, false alarms are F plants at or above it. The toy's rule
+from the first half, "miss no brown-spot, with the fewest false alarms", is the
+special case where c is infinite.
+
+Toy at c = 3, from `inf` down: 18, 15, 9, 7, 5, 2, 4. Cheapest: 0.2.
+
+### The step and its boundary
+
+Lowering the threshold one level, every T that crosses saves c and every F that
+crosses costs 1. The change is −c × T + F, and a step pays when c × T > F.
+**Each step has a boundary, F / T**: below that price it does not pay, above it
+does. A step's change must also equal the difference between its two rows of
+the bill, which is the check that caught two hand-computation slips (below).
+
+Brown-spot, step by step from the top:
+
+```
+step to    T     F    boundary
+1.0       27     0    0
+0.8        7     2    0.29
+0.6        3     2    0.67
+0.4        1     5    5
+0.2        1    21    21
+0.0        1   196    196
+```
+
+The boundaries rise because the score ranks the plants: the lower the level, the
+more F plants come with each T. That gives the whole map at once. c between 0.67
+and 5 stands at 0.6, between 5 and 21 at 0.4, between 21 and 196 at 0.2, and
+above 196 the cheapest rule is threshold 0.0. Measured:
+
+```
+brown-spot   threshold   1.0   0.8   0.6   0.4   0.2   0.0
+             c = 3        39    20    13    15    33   226
+             c = 10      130    62    34    29    40   226
+```
+
+**There is no best threshold, only a best threshold for a price.** "It depends",
+measured.
+
+### Frog-eye: the exception, and the hole in the step rule
+
+```
+step to    T     F    boundary
+1.0       24     0    0
+0.8        1     0    0
+0.6        1     2    2
+0.4        6    11    1.83
+0.2        6    29    4.83
+0.0        2   184    92
+```
+
+One dip: the step to 0.4 is a better deal than the step to 0.6. Frog-eye has
+almost no plants in the middle, one at 4 votes and one at 3, and then six at 2
+votes. Those six are border plants with alternaria: `knn` named 2 of them
+frog-eye, 3 alternaria and 1 brown-spot, and 8 of the 11 F plants on that level
+are alternaria.
+
+Consequence: **0.6 is never the cheapest threshold.** Reaching 0.6 pays only for
+c > 2, and every c above 2 is also above 1.83, so the next step pays as well. A
+sweep over c from 0.1 to 200 in steps of 0.01 found the winners 0.8, then 0.4
+from c = 1.86, 0.2 from 4.84, and 0.0 from 92. 1.86 is neither boundary. It is
+the first grid point above 13/7 = 1.857, the boundary of the **double** step
+from 0.8 to 0.4, 7 T and 13 F.
+
+**"Stop at the first step that does not pay" has a hole.** At c = 1.9 the step
+to 0.6 alone does not pay, so the rule stops at 0.8 and pays 28.5, while 0.4
+costs 28.2. The step rule is right only while the boundaries rise. Comparing
+whole bills, as the sweep does, cannot fall into it.
+
+`np.arange(0.1, 200, 0.01)` holds 2.9999999999999987 where 3 belongs and
+91.99999999999994 where 92 belongs; rounding the grid to two decimals fixed that
+before any lookup. At exactly c = 92 two bills tie at 226, and `argmin` reported
+0.0 only because the thresholds array runs upward and 0.0 comes first. Run
+downward, the same sweep reports the switch at 92.01. Every tie is broken by
+someone.
+
+### Spray everything
+
+Above c = 92 for frog-eye, and above 196 for brown-spot, the cheapest rule is
+threshold 0.0: name every plant and spray every field. That is not an error in
+the bill. The last T plants have score 0, the same as the plants without the
+disease, and a threshold can only take a whole level or none of it. **When a
+miss is that expensive, a better threshold cannot help; only new information
+can**, such as one more question to the farmer, which is 4.2's subject. For
+fitomedicina, c is set per disease, and it is a product decision, not a
+statistical one: the model draws the curve, the price picks the point.
+
+### `knn` is one point
+
+A threshold is six rules, one per level, so six (misses, false alarms) pairs to
+choose from as the price moves. The majority vote is one rule: one pair, at
+every price.
+
+```
+frog-eye           misses  false alarms   c = 1   c = 3   c = 10
+knn                    12             2      14      38     122
+best threshold                               15      37      62
+                                            (0.8)   (0.4)   (0.2)
+```
+
+At c = 1 `knn` beats every threshold, by sitting above the curve. At c = 3 it
+loses by one spray, at c = 10 by 60. It is the cheapest frog-eye rule only for c
+between 2/3 and 2.75; alternaria's, the other point above its curve, only
+between 1 and 2.33. For brown-spot `knn` is the threshold-0.6 point exactly and
+ties the best threshold from 0.67 to 5. At the same 2 false alarms, frog-eye's
+threshold 0.6 catches 26 plants and `knn` 28.
+
+**A fixed rule is right for a narrow band of prices; a score with a threshold
+can follow the price.** Lowering a threshold only ever adds named plants, so
+misses never rise and false alarms never fall. Not "mostly": always. That
+monotone trade is what the majority vote does not offer.
+
+This closes 1.5's F-beta question without F-beta. The bill states the asymmetry
+in sprays, the unit the decision is taken in; β would carry the same preference
+without a unit.
+
+### The deliberate break: `>` for `>=`
+
+One character in `roc_curve`. Predicted on the toy: AUC between 0.5 and 0.75,
+because every threshold now names fewer plants. **It is 0.3333.** The reason was
+half right: the points are the same, each shifted by one threshold. What it
+missed is the end. No threshold ever names a plant with score 0.0, since
+0.0 > 0.0 is false, so (0, 0) appears twice and (1, 1) never. The curve stops at
+(0.5, 1), and the missing piece from there to (1, 1) is exactly 0.5 of area. No
+error is raised anywhere.
+
+`auc_from_pairs` under the break, predicted correctly at 0.8333: it does not call
+`roc_curve` at all. **Two definitions that disagree are the alarm.** That is now
+an `assert` in the class loop of `knn.py`, under `np.isclose`, with the class and
+both values in the message, and `auc_from_pairs` has its caller. It was seen to
+fire with `>` put back on purpose: alternaria, 0.1375 against 0.9546. The loss
+is larger than on the toy for the same reason, scaled: 187 of the 226 plants
+without alternaria have score 0 and fall off the end of the curve.
+
+The `assert`'s first version passed the whole score matrix to
+`auc_from_pairs`. Broadcasting `(P, 1, 15)` against `(N, 15)` compares every
+pair in every column, 0.5145 for alternaria, and the function raises nothing.
+The check would have failed on its own line at the first class, which is the
+case for having it.
+
+### The figure
+
+![ROC curves for brown-spot and frog-eye under Gower, with the knn operating point](figures/gower_knn_per_class_roc.png)
+
+Brown-spot and frog-eye under Gower, the diagonal of a constant score, and
+`knn`'s point from the confusion matrix: x = 1 − specificity, y = recall.
+`per_class_specificity` has its first caller. On brown-spot the X sits on the
+curve's marker and is hidden by it, and that hiding is the finding, so an arrow
+points to it. On frog-eye it is visibly above.
+
+After the loop over distances, `scores` holds Euclidean's, the last one in the
+dict. Drawn from there, the figure would have shown Euclidean's curves under
+Gower's title. The results are kept per distance in a dict, each entry a dict
+with named fields (scores, actual, matrix), and read by name.
+
+The point labels round 0.675 to 0.68 and 0.975 to 0.97. Stored, the first is a
+hair above its decimal and the second a hair below. 0.5's lesson, in a figure.
+
+### The slips
+
+- The toy's 0.8 row with 4 misses, then "2 plants" crossing from 0.8 to 0.6. Two
+  cross, one T and one F.
+- The step from 0.2 to 0.0 as one T and two F. The T at 0.2 is already named at
+  0.2, because the rule is `>=`.
+- The saving added instead of subtracted, 3 × 1 + 2. A T that crosses stops
+  being a miss.
+- "c between 0 and 2" for when the step to 0.6 pays: the direction reversed.
+- 30 false alarms for the step to 0.2. 30 is the total at 0.2; 21 is what the
+  step adds.
+- T and F chosen by a position range, `[87:127]`, where brown-spot occupies 86
+  to 125. Off by one: the first brown-spot plant counted as F, the
+  bacterial-blight plant after the block as T, and inside the block the shift is
+  invisible. The check at threshold 1.0 (13 misses, 0 false alarms, 39) failed
+  and was not flagged; the target number caught it. **With the bug, 0.4 beat 0.6
+  at c = 3: two mislabelled plants changed the decision.** Fixed with
+  `y_true_binary` as the mask, so no number is left in the code.
+- 17 plants printed for "the 6 frog-eye plants at 0.4". The mask had the level
+  and not the class: the whole step, 6 T and 11 F.
+- Frog-eye's F array has four levels, not six, and was paired with the T array
+  by position from the wrong end: "1 T and 11 F at 0.8".
+- `knn`'s frog-eye counts read first from brown-spot's index, then from two
+  single cells, before the whole row and the whole column.
+- A variable named `TP` holding misses.
+
+The same family as 1.3's four label-versus-position bugs: a position standing in
+for a name, correct exactly as long as the order holds.
+
+### Predictions
+
+First half, the functions and the curves:
+
+- Most points on a curve at `k = 5`: up to 7. Right, with the reason.
+- TPR at threshold 1.0 on the toy: 1/10. Wrong, 1/6: accuracy's denominator.
+- Points sklearn returns on the toy: 7. Wrong, 6.
+- Threshold to miss none with the fewest alarms: 1.0. Wrong, 0.2: the second
+  goal optimised, the first one failed.
+- `==` and `isclose` against `roc_auc_score`: False and True. Right. The reason
+  "different precision" was wrong, both are float64; "sklearn drops a point" was
+  right.
+- `auc` on sklearn's 6-point curve: …334, for that reason. Right.
+- Number of (T, F) pairs on the toy: 6. Wrong, 24.
+- What a tie must be worth for the two definitions to agree: ½. Right.
+- What the pair is worth if the T enters first: ½. Wrong, 1.
+- `0.6 > F` and `0.6 == F` on the toy, and where the two `True` sit in the `==`
+  matrix. Right.
+- Shape of `(6, 1) > (4,)`: right once the rule was stated.
+- AUC of a constant score: 0.5. Right, but "12 ties": it is 24 ties, worth 12.
+- Most classes in one `votes` Series: 5. Right, but answered once the output was
+  on screen.
+- Shape of `scores.sum(axis=0)`: (266, 1), then (266, 15). Wrong, (15,).
+- Points on the brown-spot curve: fewer than 7. Wrong, 7.
+- TP at threshold 1.0 for brown-spot: "5 brown-spot plants in k = 5". Wrong, 27:
+  neighbours instead of plants.
+- Brown-spot's operating point: the threshold-0.6 point. Right, with the reason.
+- Frog-eye's operating point: below the curve. Wrong, above.
+- Higher AUC, brown-spot or frog-eye: brown-spot. Right; it climbs while FPR is
+  still small.
+- What the zero-vote plant would earn at 0.4 and at 0.2: 255 and 254. Wrong, 256
+  and 255.
+
+Second half, the price and the break:
+
+- Brown-spot's cheapest threshold at c = 3: 0.6. Right; the reason "most T
+  relative to F" carries no price, so it cannot be the whole reason.
+- At c = 10: 0.4. Right, with the mechanism, before running: one miss now
+  outweighs five false alarms.
+- Frog-eye's boundaries: rising, with one exception. Right; the reason "many end
+  up in another class, so few T and many F" had the right ingredient and the
+  effect backwards: the exception is a batch of six T.
+- Where the winner switches from 0.8 to 0.4: between 1.83 and 2. Right, 1.86.
+- What `knn` sees that the threshold does not: "the number of votes". Half: the
+  threshold sees the frog-eye votes too; `knn` sees how the other three split.
+- The break: AUC between 0.5 and 0.75. Wrong, 0.3333.
+- `auc_from_pairs` under the break: 0.8333. Right, with the reason.
+
+Three questions got "don't know" and were then derived in steps: whether 0.6 is
+ever frog-eye's cheapest threshold, why "spray everything" starts at 92, and
+whether `knn` beats every threshold at c = 1.
+
+### Open
+
+- Macro AUC ranks the distances on two plants. Settled in 8.1, whose question is
+  whether a difference is real.
+- The vote share is a lossy score, with two points above their curves. A score
+  that kept the split, such as distance-weighted votes or a larger `k`, would
+  have a better curve: 1.8, where `k` is the dial, or 8.1.
+- c per disease is fitomedicina's decision, and 4.2 is the answer to "spray
+  everything".
+- The bill lives nowhere in the repository; the sweep was a temporary block. If
+  8.1 needs the cost asymmetry, it becomes a function in `metrics.py` then, not
+  before.
+- `Vector` is still defined in three files.
