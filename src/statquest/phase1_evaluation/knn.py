@@ -1,9 +1,9 @@
 from collections.abc import Callable
-from matplotlib import pyplot as plt
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from matplotlib import pyplot as plt
 
 from statquest.phase1_evaluation.distances import (
     euclidean_distance,
@@ -25,15 +25,15 @@ def knn(
     rows = np.asarray(data_frame, dtype=float)
 
     distances = np.array([distance_function(plant, row) for row in rows])
-    argsort_distances_positions = np.argsort(distances, kind="stable")[:k]
-    nearest_classes = classes.iloc[argsort_distances_positions]
+    nearest_positions = np.argsort(distances, kind="stable")[:k]
+    nearest_classes = classes.iloc[nearest_positions]
 
-    nc_value_counts = nearest_classes.value_counts()
+    votes = nearest_classes.value_counts()
 
-    tied = nc_value_counts.index[nc_value_counts == nc_value_counts.max()]
-    nearest_neighbours = nearest_classes[nearest_classes.isin(tied)].iloc[0]
+    tied = votes.index[votes == votes.max()]
+    predicted_class = nearest_classes[nearest_classes.isin(tied)].iloc[0]
 
-    return nearest_neighbours, nc_value_counts
+    return predicted_class, votes
 
 
 if __name__ == "__main__":
@@ -42,26 +42,26 @@ if __name__ == "__main__":
         auc,
         auc_from_pairs,
         confusion_matrix,
+        per_class_recall,
+        per_class_specificity,
         roc_curve,
         summarize_matrix,
-        per_class_specificity,
-        per_class_recall
     )
 
     pd.set_option("display.max_rows", None)
     pd.set_option("display.max_columns", None)
 
     data = load_soyabeans_csv()
-    data_classes_per_row = data["class"]
-    data_wo_classes = data.drop("class", axis=1)
+    all_classes = data["class"]
+    all_features = data.drop("class", axis=1)
 
-    complete_rows = data_wo_classes.notna().all(axis=1)
-    data_classes_per_row_complete_rows = data_classes_per_row[complete_rows]
-    data_wo_classes_complete_rows = data_wo_classes[complete_rows]
+    complete_rows = all_features.notna().all(axis=1)
+    classes = all_classes[complete_rows]
+    features = all_features[complete_rows]
 
-    gower = make_gower(data_wo_classes_complete_rows)
+    gower = make_gower(features)
 
-    unique_classes = np.unique(data_classes_per_row_complete_rows)
+    unique_classes = np.unique(classes)
     k = 5
 
     distances = {
@@ -72,33 +72,27 @@ if __name__ == "__main__":
     }
 
     rows = []
-    scores_per_distance = {}
+    results_per_distance = {}
 
     for dist_name, dist in distances.items():
         actual_classes = []
         predicted_classes = []
         score_rows = []
 
-        for position in range(len(data_wo_classes_complete_rows)):
-            class_actual = data_classes_per_row_complete_rows.iloc[position]
-            test_plant = np.array(data_wo_classes_complete_rows.iloc[position])
+        for position in range(len(features)):
+            actual_class = classes.iloc[position]
+            test_plant = np.array(features.iloc[position])
 
-            keep = np.arange(len(data_wo_classes_complete_rows)) != position
+            keep = np.arange(len(features)) != position
 
-            data_wo_classes_complete_rows_keep = data_wo_classes_complete_rows[keep]
-            data_classes_per_row_complete_rows_keep = (
-                data_classes_per_row_complete_rows[keep]
-            )
+            train_features = features[keep]
+            train_classes = classes[keep]
 
-            assert (
-                len(data_wo_classes_complete_rows_keep)
-                == len(data_classes_per_row_complete_rows_keep)
-                == len(data_wo_classes_complete_rows) - 1
-            )
+            assert len(train_features) == len(train_classes) == len(features) - 1
 
-            class_predicted, votes = knn(
-                data_wo_classes_complete_rows_keep,
-                data_classes_per_row_complete_rows_keep,
+            predicted_class, votes = knn(
+                train_features,
+                train_classes,
                 test_plant,
                 k,
                 dist,
@@ -106,23 +100,23 @@ if __name__ == "__main__":
             score_row = (votes.reindex(unique_classes, fill_value=0) / k).to_numpy()
             score_rows.append(score_row)
 
-            actual_classes.append(class_actual)
-            predicted_classes.append(class_predicted)
+            actual_classes.append(actual_class)
+            predicted_classes.append(predicted_class)
 
         scores = np.array(score_rows)
 
         actual = np.array(actual_classes)
         class_aucs = []
 
-        for i, uclass in enumerate(unique_classes):
-            y_true_binary = actual == uclass
+        for i, class_name in enumerate(unique_classes):
+            y_true_binary = actual == class_name
             fpr, tpr, _ = roc_curve(y_true_binary, scores[:, i])
 
             auc_from_roc = auc(fpr, tpr)
             auc_from_scores = auc_from_pairs(y_true_binary, scores[:, i])
             assert np.isclose(auc_from_roc, auc_from_scores), (
                 f"AUC from ROC and AUC from scores are not the same values on class "
-                f"'{uclass}': {auc_from_roc} =/= {auc_from_scores}"
+                f"'{class_name}': {auc_from_roc} =/= {auc_from_scores}"
             )
 
             class_aucs.append(auc_from_roc)
@@ -137,20 +131,24 @@ if __name__ == "__main__":
             }
         )
 
-        scores_per_distance[dist_name] = {"scores": scores, "actual": actual, "matrix": matrix}
+        results_per_distance[dist_name] = {
+            "scores": scores,
+            "actual": actual,
+            "matrix": matrix,
+        }
 
-    gower_results = scores_per_distance['gower']
-    matrix = gower_results['matrix']
-    class_to_check = ['brown-spot', 'frog-eye-leaf-spot']
+    gower_results = results_per_distance["gower"]
+    matrix = gower_results["matrix"]
+    class_to_check = ["brown-spot", "frog-eye-leaf-spot"]
 
     plots_path = Path(__file__).parents[3] / "figures"
     plots_path.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(nrows=1, ncols=len(class_to_check), figsize=(24, 8))
 
     for i, class_name in enumerate(class_to_check):
-        y_true_binary = gower_results['actual'] == class_name
+        y_true_binary = gower_results["actual"] == class_name
         class_index = np.where(unique_classes == class_name)[0][0]
-        class_scores_column = gower_results['scores'][:, class_index]
+        class_scores_column = gower_results["scores"][:, class_index]
 
         fpr, tpr, _ = roc_curve(y_true_binary, class_scores_column)
         knn_fpr = 1 - per_class_specificity(matrix)[class_index]
@@ -159,28 +157,19 @@ if __name__ == "__main__":
 
         ax[i].plot(fpr, tpr, marker="o", label="ROC curve")
         ax[i].plot([0, 1], [0, 1], "r--", label="Random classifier")
-        ax[i].scatter(knn_fpr, knn_tpr, marker="x", s=100, color="green", label='KNN (Gower)')
+        ax[i].scatter(
+            knn_fpr, knn_tpr, marker="x", s=100, color="green", label="KNN (Gower)"
+        )
         ax[i].set_title(f"'{class_name}' ROC curve - AUC: {auc_from_roc:.4f}")
         ax[i].set_xlabel("FPR (1 − specificity)")
         ax[i].set_ylabel("TPR (recall)")
         ax[i].set_aspect("equal")
 
-        offsets = [
-            (8, -5),
-            (8, -5),
-            (5, -5),
-            (5, -6),
-            (8, -8),
-            (8, 5),
-            (-44, 5)
-        ]
+        offsets = [(8, -5), (8, -5), (5, -5), (5, -6), (8, -8), (8, 5), (-44, 5)]
 
         for (x, y), offset in zip(zip(fpr, tpr), offsets):
             ax[i].annotate(
-                f"({x:.2f}, {y:.2f})",
-                (x, y),
-                xytext=offset,
-                textcoords="offset points"
+                f"({x:.2f}, {y:.2f})", (x, y), xytext=offset, textcoords="offset points"
             )
 
         ax[i].annotate(
@@ -189,12 +178,14 @@ if __name__ == "__main__":
             xytext=(-80, -10),
             textcoords="offset points",
             fontsize=10,
-            arrowprops=dict(arrowstyle="->")
+            arrowprops={"arrowstyle": "->"},
         )
 
         ax[i].legend()
 
-    fig.savefig(plots_path / "gower_knn_per_class_roc.png", dpi=300, bbox_inches="tight")
+    fig.savefig(
+        plots_path / "gower_knn_per_class_roc.png", dpi=300, bbox_inches="tight"
+    )
 
     summary = pd.DataFrame(rows).set_index("distance")
     print(summary.round(4))
