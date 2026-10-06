@@ -90,7 +90,9 @@ if __name__ == "__main__":
 
             assert len(train_features) == len(train_classes) == len(features) - 1
 
-            predicted_class, votes = knn(train_features, train_classes, test_plant, k, dist)
+            predicted_class, votes = knn(
+                train_features, train_classes, test_plant, k, dist
+            )
             score_row = (votes.reindex(unique_classes, fill_value=0) / k).to_numpy()
             score_rows.append(score_row)
 
@@ -137,9 +139,9 @@ if __name__ == "__main__":
 
     plots_path = Path(__file__).parents[3] / "figures"
     plots_path.mkdir(parents=True, exist_ok=True)
-    fig, axes = plt.subplots(nrows=1, ncols=len(class_to_check), figsize=(24, 8))
+    fig, axes = plt.subplots(nrows=1, ncols=len(classes_to_plot), figsize=(24, 8))
 
-    for i, class_name in enumerate(class_to_check):
+    for i, class_name in enumerate(classes_to_plot):
         y_true_binary = gower_results["actual"] == class_name
         class_index = np.where(unique_classes == class_name)[0][0]
         class_scores_column = gower_results["scores"][:, class_index]
