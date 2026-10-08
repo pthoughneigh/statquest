@@ -8,7 +8,7 @@ def train_test_split(
 
     shuffled_positions = rng.permutation(n_rows)
 
-    train_positions =  np.sort(shuffled_positions[n_test:])
+    train_positions = np.sort(shuffled_positions[n_test:])
     test_positions = shuffled_positions[:n_test]
 
     assert np.intersect1d(test_positions, train_positions).size == 0

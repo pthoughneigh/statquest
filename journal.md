@@ -1978,3 +1978,306 @@ whether `knn` beats every threshold at c = 1.
   8.1 needs the cost asymmetry, it becomes a function in `metrics.py` then, not
   before.
 - `Vector` is still defined in three files.
+
+## 1.7 — Cross-validation
+*2026-10-06 – in progress. Part 1: the leakage check, one split, k-fold, stratified k-fold.*
+
+The loop in `knn.py` was already cross-validation: leave-one-out is k-fold with
+k = 266, every plant tested once against the other 265. 1.7 names it and builds
+the rest of the family in `phase1_evaluation/splits.py`. Every function there
+produces positions and nothing else, a list of (train, test) pairs, so the code
+that trains and scores does not change between schemes.
+
+### The ruler comes from the training part, and here it costs nothing
+
+`make_gower` measures each ordinal column's range on the frame it is given.
+Under honest cross-validation that frame is the training part only: the plant
+under test must not shape the ruler it is measured with. That is the leakage
+rule, and it holds whether or not breaking it moves the number.
+
+On leave-one-out it does not move it. Ranges from the 265 against ranges from
+all 266: **0 of 266 predictions change**, both 0.8985. A range moves only if the
+held-out plant is the only one on a column's minimum or maximum, and no plant
+ever is:
+
+```
+              at min  at max      (266 rows)
+date              11      40
+plant_stand      156     110
+precip            39     187
+temp              37      63
+crop_hist         30      83
+severity          87      28
+germination       81      87
+seed_size        251      15
+stem_cankers     173      64
+```
+
+The same holds for k-fold and stratified k-fold: 0 of 5,320 predictions differ
+over 20 runs, because the 11 plants at `date` = 0 never all land in one test
+part of 27. It will not hold in the temporal split, where the training part has
+no plant after July.
+
+The comparison was first written so that it could not fail: both lists were
+appended the same variable, so it compared a list with itself and printed 0 by
+construction. The right answer was also 0, so the fixed version printed the same
+number. **What proves the fixed comparison can see a difference is the deliberate
+break**: Manhattan in place of the full-range Gower moves 21 predictions.
+
+### What a comparison of two distances rests on
+
+The 21 plants the break moved, and the rest, split by who was right:
+
+```
+both right                      226
+only Gower right                 13
+only Manhattan right              5
+both wrong, differently           3
+both wrong, the same way         19
+                                266
+```
+
+Accuracy differs by 239 − 231 = 8 = 13 − 5. That is the **net**: a plant one
+distance wins cancels a plant the other wins. The 21 disagreements are the
+**gross**. Two students on the same five-question test, Ana with 4 points and
+Marko with 3, can differ on 3 answers. **A comparison of two models rests only
+on the plants they disagree on**: here 18 that decide (13 + 5), against 245 that
+say nothing about which is better. The three both-wrong-differently plants are
+all leaf spots called another leaf spot (positions 183, 219, 251), the confusion
+family of 1.4. Being wrong differently needs more than two classes: on a yes/no
+test two wrong answers are the same answer.
+
+### One split is a noisy measurement
+
+`train_test_split(n_rows, n_test, seed)`: one permutation, the first `n_test`
+positions are the test, the rest the training. The first draft drew two
+permutations and filtered one by the other with `isin`. It was correct, but the
+parts were disjoint because of the filter, not by construction. Cut from one
+permutation, they cannot overlap.
+
+80 test plants, 186 training, Gower, seeds 0–19:
+
+```
+accuracy   mean 0.8631   sd 0.0392   min 0.775 (62/80)   max 0.9375 (75/80)
+```
+
+*Before training positions were sorted (see below): mean 0.8613, sd 0.0401, min
+0.7625, max 0.9375.*
+
+Two effects are in these numbers, and they need different explanations.
+
+**The wobble: which plants land in the test.** Leave-one-out misses 27 of 266
+plants. A random 80 takes 80/266 ≈ 0.30 of the field, so on average
+27 × 0.30 ≈ 8 of those hard plants: 72/80 = 0.90. The count wobbles, typically
+by about √8 ≈ 3 plants, and the worst of 20 draws by about twice that. One test
+plant is 1/80 = 0.0125 of accuracy, so 3 plants are about 0.04, the measured sd.
+Exact counts (hypergeometric, 266 / 27 / 80): mean 8.1, sd 2.3; between 6 and 10
+in 73% of draws; 4 or fewer, or 12 or more, in 12%, which at least one of 20
+draws reaches with probability 0.92. All 27 in one test: 2 × 10⁻¹⁶.
+
+**The shift: a smaller training part.** The mean sits 0.035 below
+leave-one-out. Hardness is not a property of a plant but of who is in training.
+A test plant of a 10-plant class keeps on average 9 × 186/265 ≈ 6.3 of its 9
+classmates, sometimes 4, and `k = 5` needs about 3 votes (1.3's threshold). A
+phyllosticta plant whose neighbours read phy, alt, phy, alt, phy, brown, alt
+gets 3 of 5; with neighbours 3 and 5 in the test, the top five are phy, alt,
+alt, brown, alt, and the vote goes to alternaria with every distance unchanged.
+
+**Gower against Manhattan on the same 20 splits: ahead 12, tied 6, behind 2**,
+mean lead 1.75 plants. *Before sorting: 15, 3, 2, mean 2.45.* The estimate from
+the 21 disagreement plants: 0.30 × 13 ≈ 4 Gower plants and 0.30 × 5 ≈ 1.5
+Manhattan plants in a typical test, a lead of about 2.5 decided by about 6
+plants. A lead that small is erased by ordinary wobble, so **one split fails to
+show the better distance 8 times in 20**. 1.5's whole Gower–Manhattan gap, 0.030,
+is smaller than one split's sd.
+
+### k-fold: every plant tested exactly once
+
+`k_fold_split(n_rows, n_folds, seed)`: one permutation cut by `np.array_split`
+into 10 parts, 6 of 27 and 4 of 26 (the remainder goes to the first parts).
+Round i tests part i and trains on the other nine. The check that defines
+k-fold: all ten test parts together give every position exactly once. The
+argument is `n_folds`, not `k`, which already means the number of neighbours.
+
+```
+                        mean             sd       range
+k-fold, 10 seeds        0.8891 (236.5)   0.0082   233–239 of 266
+holdout, 20 seeds       0.8631           0.0392   62–75 of 80
+leave-one-out           0.8985 (239)
+```
+
+*Before sorting: k-fold 0.8914 (237.1), sd 0.0074, 234–239.*
+
+**The wobble from the test selection is gone**, not reduced: every seed tests all
+266 plants, so every hard plant is tested once whatever the seed. On six plants
+A–F in three parts, two different seeds both give 5/6 when the model misses only
+C; a split testing only (A, B) gives 1.0 and one testing (B, C) gives 0.5. What
+is left, about 2 plants, comes from who trains with whom. **The shift shrinks**:
+training is 239 or 240 plants, and a 10-plant class loses on average about one
+of its 9 to the same test part, not three.
+
+**Gower against Manhattan on the same 10 seeds: ahead on all 10**, by 1 to 10
+plants, mean 5.4. *Before sorting: 3 to 9, mean 5.9.* In leave-one-out the lead
+is 8 = 13 − 5. k-fold tests the same 266 plants, so the lead stays near 8, less
+whatever the smaller training flips. **What one split could not show, k-fold
+shows every time.** With one caveat, for 8.1: the ten seeds reuse the same 266
+plants. They remove the luck of which plants are tested, not the luck of which
+plants were collected. Whether Gower would also win on another field rests on
+the 13 and the 5.
+
+### Stratified k-fold: each class dealt like cards
+
+Plain k-fold lets a seed put several plants of a small class into one part.
+Seed 0, phyllosticta across the ten parts: 0, 1, 1, 0, 2, 2, 0, 1, 1, 2. On some
+seeds a 10-plant class lands 5 plants in one part, which leaves 5 in training
+for those 5 test plants: the shift again, by accident of the seed.
+
+`stratified_k_fold_split(classes, n_folds, seed)` deals each class separately,
+like cards: shuffle its positions, give the i-th to part `i % n_folds`. Every
+10-plant class puts exactly one plant in each part, the 40s four, the 20s two,
+and `phytophthora-rot` (16) two in six parts and one in four. `fold_of` holds one
+part number per plant, −1 until dealt; on six plants (rust, spot, rust, spot,
+rust, spot) in three parts it reads `[1 2 2 1 0 0]`, one rust and one spot per
+part. Checks: no −1 left; all test parts together give every position once; and
+for each class, `np.bincount` of its part numbers with `minlength=n_folds`
+differs by at most 1 between parts. `minlength` keeps a part with none of the
+class as a 0 instead of losing it off the end of the array, 1.3's lesson about
+counters that were never written.
+
+```
+stratified, 10 seeds   mean 0.9045 (240.6)   sd 0.0059   range 238–243 of 266
+```
+
+**Above plain k-fold by 4.1 plants**, and above leave-one-out by 1.6, which is
+inside the noise of the tie order: leave-one-out itself gives 238 to 240 when its
+training rows are shuffled.
+
+### The order of the training rows is part of the procedure
+
+`k_fold_split` first returned training positions in permuted order and
+`stratified_k_fold_split` in sorted order (`np.flatnonzero`). With
+`kind="stable"` the order decides 1.4's blind cuts, so the two were not compared
+under the same rule. Changing only the order:
+
+```
+                               permuted   sorted
+plain k-fold, mean of 266       237.1     236.5
+stratified, mean of 266         240.0     240.6
+leave-one-out, training order shuffled 5 times: 238, 240, 238, 239, 239
+```
+
+The order is worth about 0.6 plant on average and ±1 in a single run;
+stratification is worth about 4. **Decision: every split function returns sorted
+training positions**, so every scheme breaks ties by file order, as
+leave-one-out does, and a difference between schemes belongs to the schemes.
+This changed the holdout and k-fold numbers; the numbers in this entry are under
+sorted training, the earlier ones in italics.
+
+### Slips, each of which printed a plausible number
+
+- The comparison of a list with itself, above:
+  `predicted_classes_full.append(predicted_class)`.
+- Accuracy written as `(pred != actual).sum() / len(features) - 1`. Precedence
+  subtracts 1 from the ratio, and the line prints −0.8985, exactly minus the
+  accuracy. The intended denominator was 265, the training size, where accuracy
+  divides by the 266 predictions: 1.3's 306 for 307 again.
+- `np.allclose` for integer positions (exact values compare with
+  `np.array_equal`, as in 1.4); a check comparing two halves with the array they
+  were cut from, which cannot fail; then a check comparing with the integer
+  `n_rows`, which always fails.
+- The first k-fold returned a single pair, with training and test swapped: 27 in
+  training, 239 tested.
+- Running accuracies: the prediction lists were created once, outside the seed
+  loop, so seed s reported seeds 0..s together. The giveaway was
+  0.9079 × 266 = 241.5, half a plant. The last value equals the true mean, which
+  is why the run looked right, and its sd of 0.0018 was an artifact of averages
+  sharing their terms.
+- `make_gower(features)` on all 266 rows in the k-fold loop: the leakage of the
+  first section, harmless here, fixed.
+
+### Concepts met in 1.7, part 1
+
+Each with the example it was built on.
+
+- **Sample and whole.** The test part is a sample; its accuracy is a
+  measurement on a sample.
+- **Probability as a share.** Four plants, two picked: A is in 3 of the 6
+  possible pairs, 3/6 = 2/4. A random pick of n from N includes each plant with
+  probability n/N: 80/266 ≈ 0.30.
+- **Expected value.** Count times share: 27 × 0.30 ≈ 8 hard plants in the test,
+  9 × 0.70 ≈ 6 classmates in training.
+- **Variability, standard deviation.** How far one measurement typically lands
+  from the average: 0.039 for one split, 0.008 for k-fold.
+- **The square-root rule.** A count of rare things wobbles by about the square
+  root of its expected value: √8 ≈ 3. A coin walk of 100 steps ends about 10
+  steps from the start, because the steps cancel. The worst of many draws is
+  about twice the typical wobble. Binomial and hypergeometric distributions give
+  the exact values.
+- **Standard error.** The wobble of a measured accuracy: 3 plants of 80 ≈ 0.04.
+  A bigger test wobbles less in accuracy.
+- **Bias and variance.** The shift (a smaller training part) and the wobble
+  (which plants are tested): two effects, two different fixes. 1.8's subject.
+- **Paired comparison, net and gross.** Ana and Marko; 13 − 5 = 8 against 21
+  disagreements.
+- **Stratified sampling.** Deal each group separately, so every part has the
+  mix of the whole.
+- **Modulo.** The remainder of a division: 13 % 10 = 3. Card i goes to player
+  i % n.
+- **Frequency.** How often each value occurs: `np.bincount([0, 0, 2])` is
+  `[2 0 1]`.
+- **Leakage.** Anything learned from data, a range or a mean, is learned from the
+  training part only.
+
+### Predictions
+
+✓ right, ✗ wrong.
+
+1. Ranges from 265 instead of 266 on leave-one-out, predictions that change:
+   1–5, because the held-out plant may take an extreme with it ✗ — 0. The
+   mechanism needed one more condition, that the plant is alone on the extreme;
+   the smallest group is 11.
+2. The smallest of the 18 extreme counts: skipped, measured first — 11.
+3. Manhattan in place of the full-range Gower: more than 10 ✓ — 21. Reason half
+   right: Manhattan does not treat ordinal columns as nominal, it reads nominal
+   codes as quantities; and larger distances change nothing by themselves, only
+   the order of the neighbours does.
+4. Accuracies 8 apart with 21 disagreements, how both can hold: "ne znam", then
+   derived on Ana and Marko (Manhattan's hits counted as 2 instead of 3 once).
+5. How far one 70/30 split can land from 0.8985: ±0.03, from 8/266 ✗ — the
+   worst of 20 lands 0.12 below (0.775) and 0.04 above (0.9375). He then pointed
+   out that "the worst of many" depends on how many; right, and the question
+   should have asked about one split.
+6. How far below 0.8985 the holdout mean lands: more than 0.03 ✓ — 0.035. Reason
+   derived through phyllosticta's classmates in training: 5 of 9 ✗, then
+   9 × 0.70 ≈ 6.3.
+7. On how many of 20 splits Gower beats Manhattan: most, about 18 ✓ most — 12
+   (15 before sorting); 18 was "ahead or tied" in the old run. Reason derived: 6
+   deciding plants, 4 against 1.5.
+8. Spread of k-fold accuracy across seeds: about 0.02 ✗ — 0.008. Reason half
+   right: what remains comes from who trains with whom, but the main source had
+   vanished entirely.
+9. Seeds on which Gower beats Manhattan under k-fold: all 10 ✓, by 5–6 plants ✓
+   — mean 5.4 (5.9 before sorting).
+10. Stratified mean: between 0.891 and 0.8985 ✗ — 0.9045. Better spread classes
+    explain the gain over plain k-fold, not the step past leave-one-out, which
+    is within the tie-order noise.
+11. The share of stratification's gain owed to the row order: almost nothing ✓ —
+    0.6 of about 4 plants, reasoned from 1.4's single moved prediction in 62
+    blind cuts.
+
+Hand computations: the expected number of hard plants in a test as 10/40 ✗ and
+the chance a plant is picked as 1/40 ✗, then 3/6 on A, B, C, D ✓; modulo for 7
+plants, `[0 1 2 0 1 2 0]` ✓; 16 plants over 10 parts as 5 × 2 + 6 × 1 ✗ (11
+parts), then 6 × 2 + 4 × 1 ✓; the positions of part 0 as "5 and 6" ✗, counted
+from one.
+
+### Open
+
+- Why a sample's sd divides by n − 1 (0.0401) and `np.std` by n (0.0391).
+- The spread of accuracy across the ten parts of one run (0.04 to 0.10) against
+  the spread across seeds (0.008): what each measures.
+- A test of 160 plants instead of 80: by the square-root rule its accuracy
+  wobbles less. Not computed.
+- Still to come in 1.7: the class of one on 307 rows, grouped splits, the
+  temporal split, the reference implementations in scikit-learn, the deliberate
+  break.
