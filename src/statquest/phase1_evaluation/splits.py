@@ -8,7 +8,7 @@ def train_test_split(
 
     shuffled_positions = rng.permutation(n_rows)
 
-    train_positions = shuffled_positions[n_test:]
+    train_positions =  np.sort(shuffled_positions[n_test:])
     test_positions = shuffled_positions[:n_test]
 
     assert np.intersect1d(test_positions, train_positions).size == 0
@@ -34,7 +34,7 @@ def k_fold_split(
 
     for i in range(n_folds):
         train_folds = folds[:i] + folds[i + 1 :]
-        train_positions = np.concatenate(train_folds)
+        train_positions = np.sort(np.concatenate(train_folds))
         test_positions = folds[i]
 
         train_test_pairs.append((train_positions, test_positions))
