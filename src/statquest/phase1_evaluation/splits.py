@@ -55,12 +55,16 @@ def stratified_k_fold_split(
     training_test_pairs = []
 
     fold_of = np.full(len(classes), -1)
+    offset = 0
+
     for cls in np.unique(classes):
         class_positions = np.flatnonzero(classes == cls)
         class_pos_shuffled = rng.permutation(class_positions)
 
-        fold_of_distribution = np.arange(len(class_pos_shuffled)) % n_folds
+        fold_of_distribution = (np.arange(len(class_pos_shuffled)) + offset) % n_folds
+
         fold_of[class_pos_shuffled] = fold_of_distribution
+        offset = (offset + len(class_pos_shuffled)) % n_folds
 
     assert (fold_of == -1).sum() == 0
 
@@ -75,7 +79,13 @@ def stratified_k_fold_split(
     assert np.array_equal(sorted_test_indices, np.arange(len(classes)))
 
     for cls in np.unique(classes):
-        bc = np.bincount(fold_of[np.flatnonzero(classes == cls)], minlength=n_folds)
+        bc = np.bincount(
+            fold_of[np.flatnonzero(classes == cls)],
+            minlength=n_folds,
+        )
         assert np.max(bc) - np.min(bc) <= 1
+
+    part_sizes = np.bincount(fold_of, minlength=n_folds)
+    assert np.max(part_sizes) - np.min(part_sizes) <= 1
 
     return training_test_pairs
