@@ -89,3 +89,26 @@ def stratified_k_fold_split(
     assert np.max(part_sizes) - np.min(part_sizes) <= 1
 
     return training_test_pairs
+
+
+def leave_one_group_out_split(
+    groups: np.ndarray,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    training_test_pairs = []
+
+    groups = np.asarray(groups)
+
+    unique_groups = np.unique(groups)
+    for group in unique_groups:
+        test_positions = np.flatnonzero(groups == group)
+        train_positions = np.flatnonzero(groups != group)
+        training_test_pairs.append((train_positions, test_positions))
+
+    test_indices = [test_idx for _, test_idx in training_test_pairs]
+    sorted_test_indices = np.sort(np.concatenate(test_indices))
+
+    assert np.array_equal(sorted_test_indices, np.arange(len(groups)))
+    for train_idx, test_idx in training_test_pairs:
+        assert np.intersect1d(groups[train_idx], groups[test_idx]).size == 0
+
+    return training_test_pairs
