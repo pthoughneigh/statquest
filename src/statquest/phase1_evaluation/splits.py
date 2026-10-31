@@ -112,3 +112,16 @@ def leave_one_group_out_split(
         assert np.intersect1d(groups[train_idx], groups[test_idx]).size == 0
 
     return training_test_pairs
+
+
+def temporal_split(months: np.ndarray, last_train_month: int) -> tuple[np.ndarray, np.ndarray]:
+    months = np.asarray(months)
+    train_mask = months <= last_train_month
+
+    train_positions = np.flatnonzero(train_mask)
+    test_positions = np.flatnonzero(~train_mask)
+
+    assert np.array_equal(np.sort(np.concatenate([train_positions, test_positions])), np.arange(len(months)))
+    assert months[train_mask].max() < months[~train_mask].min()
+
+    return train_positions, test_positions
