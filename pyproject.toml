@@ -1,7 +1,7 @@
 [project]
 name = "statquest"
 version = "0.1.0"
-description = "Add your description here"
+description = "Learning statistics and machine learning through practical Python exercises inspired by StatQuest"
 readme = "README.md"
 authors = [
     { name = "pthoughneigh", email = "69865425+pthoughneigh@users.noreply.github.com" }
