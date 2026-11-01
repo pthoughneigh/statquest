@@ -2281,3 +2281,398 @@ from one.
 - Still to come in 1.7: the class of one on 307 rows, grouped splits, the
   temporal split, the reference implementations in scikit-learn, the deliberate
   break.
+
+*Part 2, 2026-10-08 – 2026-11-01: the class of one, the part sizes, grouped and
+temporal splits, the scikit-learn references, the deliberate break.*
+
+### The class of one: when a class is smaller than the number of parts
+
+The plan's question for 1.7 does not arise on the 266 rows, where the smallest
+classes have 10 plants, one per part. It arises on all 307, where only Gower
+runs: `2-4-d-injury` has 1 plant, `herbicide-injury` 4, `cyst-nematode` and
+`diaporthe-pod-&-stem-blight` 6 each.
+
+Dealing a class of n plants over 10 parts is **division with remainder**,
+n = q · 10 + r: every part gets q plants, and the first r parts one more.
+`herbicide-injury` is 4 = 0 · 10 + 4, so parts 0–3 get one plant each and six
+parts get none. `2-4-d-injury` is 1 = 0 · 10 + 1: part 0 gets it, nine parts get
+nothing. **"The same share of each class in every part" is a promise only a
+class with at least 10 plants can keep.**
+
+The per-class check, max − min of `np.bincount(..., minlength=n_folds)` at most
+1, passes on `2-4-d-injury`: `[1 0 0 0 0 0 0 0 0 0]`, 1 − 0 = 1. It passes on
+every class of every size, because every part gets q or q + 1, and q alone when
+r = 0. **It cannot fail while the dealing is written correctly: it checks the
+dealing, not the promise.**
+
+Whenever the single `2-4-d-injury` plant is in the test, training holds no plant
+of its class, no neighbour can vote for it, and its recall is 0 under every
+split there is. This is not a fault of KNN: no model can learn a class with no
+training example. **The answer to the plan's question: for a class of one,
+stratification means nothing.** The plant sits in one part, and when that part
+is tested there is nothing to recognise it by.
+
+`herbicide-injury` keeps 3 plants in training when one is tested, and still
+scores 0 on every seed. The votes under leave-one-out, and on every seed once
+the deal is fixed (next section):
+
+```
+herbicide plant    303, 306              304, 305
+votes              phytophthora-rot 3    phytophthora-rot 3
+                   herbicide-injury 2    2-4-d-injury     1
+                                         herbicide-injury 1
+```
+
+Two votes would win as a **relative majority** if the other three were split
+over three classes. `phytophthora-rot` held an **absolute majority**, 3 of 5,
+every time, and nothing beats that. A class being present in training is not
+enough: its plants have to be among the nearest.
+
+```
+307 rows, stratified 10-fold, Gower, k = 5, seeds 0–9 (every class dealt from part 0)
+hits     273 270 271 271 271 273 269 271 273 271     mean 0.8837 (271.3)   sd 0.0044
+recall   2-4-d-injury 0   herbicide-injury 0   cyst-nematode 1.0   diaporthe-pod 1.0
+leave-one-out on 307                                  0.8860 (272)
+```
+
+**Reporting.** With one class that no model can learn, macro recall over 19
+classes is capped at 18/19 ≈ 0.947 for any model. Decision: macro recall stays
+over all 19 classes, so it remains comparable with every 307-row number so far
+(1.5's 0.8276), and `2-4-d-injury` is reported on its own line as *one plant,
+cannot be learned or evaluated by any split*, not as "the model fails to
+recognise it". A zero inside an average cannot be seen; on its own line it can.
+
+### Every class dealt from part 0: the part sizes
+
+On 307 rows the parts came out unequal. Seed 0:
+
+```
+part     0   1   2   3   4   5   6   7   8   9
+size    33  32  32  32  31  31  29  29  29  29
+```
+
+The four 40s, two 20s and nine 10s have r = 0 and give every part the same,
+4·4 + 2·2 + 9·1 = 29. The four small classes also start at part 0, so their
+plants pile into the first parts: part 0 gets one of each (33), parts 1–3 three
+(32), parts 4–5 two (31). The most even split of 307 is 31 × 7 + 30 × 3, which
+was the first answer given: it is what one deck dealt at once would produce. On
+266 rows only `phytophthora-rot`'s 16 has a remainder, the parts are
+27 × 6 + 26 × 4, and the effect could not be seen.
+
+**None of the three asserts looked at part sizes**: one checks that every plant
+was dealt, one that every position is tested once, one that each class is
+spread within ±1. A fourth now does: `part_sizes = np.bincount(fold_of,
+minlength=n_folds)`, max − min ≤ 1. It passes on 266 (27 against 26) and fails
+on 307 (33 against 29).
+
+**The fix, designed in words before any code**: one offset carried from class to
+class, each class dealt from where the previous one stopped,
+`(np.arange(n) + offset) % n_folds`, then `offset = (offset + n) % n_folds`.
+Committed in `1d3fee1`.
+
+```
+                        before                          after
+307  sizes              33 … 29                         31 × 7, 30 × 3
+307  hits, seeds 0–9    273 270 271 271 271             274 273 272 273 272
+                        273 269 271 273 271             273 270 269 273 274
+307  mean               0.8837 (271.3)   sd 0.0044      0.8870 (272.3)   sd 0.0053
+266  hits, seeds 0–9    242 241 242 239 241             243 241 242 239 241
+                        240 239 241 243 238             240 239 241 243 238
+266  mean               0.9045 (240.6)   sd 0.0059      0.9049 (240.7)   sd 0.0064
+```
+
+**This supersedes part 1's stratified row.** On 266 only seed 0 moves, by one
+plant: the classes that come after `phytophthora-rot` alphabetically
+(`powdery-mildew`, `purple-seed-stain`, `rhizoctonia-root-rot`) now start at
+part 6, so only which plants share a test changes. On 307 the paired gain is
+about one plant per seed (7 up, 2 equal, 1 down), and is not explained.
+
+**The old dealing left a trace in the votes.** In seeds 5, 6, 7 and 9 one
+`herbicide-injury` plant showed `phytophthora-rot` 4 and `herbicide-injury` 1.
+The single `2-4-d-injury` plant was always in part 0, together with one
+herbicide plant. When that plant was 304 or 305, whose five nearest include the
+2-4-d plant, the two were out of training together, and the sixth nearest, a
+`phytophthora-rot`, took the 2-4-d vote. After the fix `2-4-d-injury` is always
+in part 0 and `herbicide-injury` always in parts 3–6, and the pattern is gone.
+It makes agronomic sense that a 2,4-D plant is a near neighbour of herbicide
+injury: 2,4-D is a herbicide.
+
+### Grouped: twins held out together
+
+Rows are not always separate plants. The same plant can be entered twice, and
+plants from one field share the date, the rain and the temperature. With one in
+the test and its relative in training, the model gets help it will not get on a
+plant from a new field. The school version: a task printed twice in the
+collection, one copy given for practice and the other put in the test, is
+answered from memory.
+
+S has 3 pairs of identical rows on 266 (positions 46/47 `brown-stem-rot`,
+91/111 `brown-spot`, 189/194 `alternarialeaf-spot`) and 4 on 307 (plus
+`cyst-nematode` 299/300, rows with holes). Each pair is one class. Under
+leave-one-out a twin is always the first neighbour, at distance 0.
+
+**The objection, and it holds:** two different plants with identical records are
+honest evidence, and KNN exists to use exactly that; a new plant will sometimes
+match an old one exactly. A double entry is not evidence. The table cannot tell
+the two apart: only knowing which field and which plant a row came from could,
+and S records neither. So both are measured, and if the number does not move,
+the question does not matter for this data.
+
+Groups: `features.groupby(list(features.columns)).ngroup()`, 263 groups
+(266 − 3), the twins sharing 110, 33 and 251. `leave_one_group_out_split(groups)`
+tests each group whole, once (`9dc3cb5`). Leave-one-out is the special case in
+which every plant is its own group, `np.arange(266)`.
+
+```
+                        hits   votes of the six twins for their own class
+leave-one-out           239    5 of 5, all six
+leave-one-group-out     239    5 of 5, except the alternaria pair: 4 + 1 frog-eye
+predictions that differ   0
+```
+
+The twin's vote was a sixth voice the class did not need: without it, 5 or 4 of
+5, still an absolute majority. **On S the twins do not carry the result**, so
+whether they are double entries or two plants changes no number here. The
+groups that matter are in C, region and year, in phases 2 and 5. For the
+alternaria pair the score moved (5/5 to 4/5) while the prediction did not.
+
+What the code needed: the second check compares *group numbers* across training
+and test, because positions are disjoint in every split and say nothing about
+groups; and `np.asarray(groups)` first, because on a Series with gappy labels
+`groups[train_idx]` reads labels and raises `KeyError`. Since tests arrive in
+group order, not position order, predictions are written into a 266-slot list
+at their plant's position, and the actual classes come from
+`classes.to_numpy()`.
+
+### Temporal: training on the past
+
+A random split answers *how well on plants like these*; a temporal split answers
+*how well on what comes next*, which is what a deployed model faces. `date` is
+the month (0 = April … 6 = October), and the diseases are seasonal:
+
+```
+                       Apr  May  Jun  Jul  Aug  Sep  Oct
+alternarialeaf-spot      0    0    0    2   10   15   13
+frog-eye-leaf-spot       0    0    0    4   13   18    5
+brown-stem-rot           0    0    0    3   10    6    1
+anthracnose              1    1    1    1    1    9    6
+brown-spot               2   13   12    6    4    3    0
+phytophthora-rot         6    4    3    3    0    0    0
+```
+
+`temporal_split(months, last_train_month)` (`491403a`, formatted in `c45200d`):
+training up to the month, test after it, no seed. Checks: every position exactly
+once, and the latest training month strictly before the earliest test month.
+
+```
+train Apr–Jul (109), test Aug–Oct (157)     0.4395 (69/157)
+20 random splits of the same sizes          mean 0.7564   sd 0.0439   min 0.6943   max 0.8217
+```
+
+**Far below the worst of 20 random splits.** The toy that explains it: June has
+4 brown-spot and 1 alternaria, September 1 brown-spot and 4 alternaria. Trained
+on June with k = 5, every September plant gets 4 brown-spot votes, and 1 of 5
+is right. The split made alternaria rare, not the data. Per class:
+
+```
+                       training   tested   correct
+alternarialeaf-spot        2         38        5
+frog-eye-leaf-spot         4         36       11
+brown-stem-rot             3         17       11
+anthracnose                4         16        6
+purple-seed-stain          2          8        3
+powdery-mildew             3          7        7
+brown-spot                33          7        7
+```
+
+Alternaria's misses went to brown-spot, 29 of 38, and so did frog-eye's, 20 of
+36. Brown-spot was predicted 60 times in the test and was right 7 times.
+Alternaria and frog-eye together are 58 of the 88 misses. **Few training plants
+cost the most when the class looks like a big one**: a leaf spot with 2 examples
+next to 33 brown-spot plants cannot clear 1.3's threshold of k. Powdery mildew,
+with its characteristic white coating, needs only 3. Brown-spot, with 33 in
+training, is 7 of 7: its late plants still look like its early ones. Of the two
+mechanisms, the class mix shifting and the symptoms themselves changing with the
+season, only the first shows here.
+
+One month later, training April–August (165) and testing September–October
+(101): **0.7228 (73/101)**. August brings 10 alternaria, 13 frog-eye and 10
+brown-stem-rot plants into training. For fitomedicina: the accuracy depends on
+how much of the season the model has already seen.
+
+**Here leakage moves the number, and down.** Ranges from all 266 rows instead of
+the training part: **0.4204 (66/157)**. The training range of `date` is 0–3.
+Between a September test plant and a July training plant the term is 2/3 with
+the honest range and 1/3 with the full one. The month helps: the few late-class
+training plants are July plants, and the honest range pulls an autumn plant
+toward them twice as hard. With `date` held constant, out of the distance
+altogether: 0.3885. **Leakage is a wrong procedure, not always a flattering
+one**: on k-fold it moved nothing, here it lowers the score, and the rule is the
+same in both cases.
+
+On 307 rows the one plant with no month is the `2-4-d-injury` plant. `NaN <= 3`
+is false, so it would go silently into the test as an autumn plant. The second
+check fails on it, because the smallest test month is then `nan`.
+
+### The scikit-learn references
+
+**An exact comparison is possible only where nothing is shuffled.**
+`model_selection.LeaveOneGroupOut().split(features, groups=groups)` gives the
+same 263 pairs as `leave_one_group_out_split`, pair by pair and in the same
+order: both walk the group numbers upward. scikit-learn is imported through the
+module, because `train_test_split` shares its name with scikit-learn's (1.6's
+`roc_curve` trap).
+
+`KFold` defaults to `n_splits=5, shuffle=False`. With `shuffle=True` all ten test
+parts differ from `k_fold_split`'s. The random streams differ
+(`np.random.default_rng` against scikit-learn's own), and `k_fold_split` returns
+its test parts in shuffled order where scikit-learn sorts them, so
+`np.array_equal` would fail even on equal parts. **What gets compared instead
+are properties**: sizes 27 × 6 + 26 × 4 in both, every position tested once.
+
+`StratifiedKFold(n_splits=10, shuffle=True, random_state=0)` on the 307 labels
+warns and goes ahead:
+
+```
+UserWarning: The least populated class in y has only 1 members, which is less than n_splits=10.
+sizes          31 × 7, 30 × 3     (the same as the fixed stratified_k_fold_split)
+2-4-d-injury   part 2      herbicide-injury   parts 3–6      cyst-nematode   parts 0, 1, 6–9
+```
+
+**The warning names only the smallest class.** `herbicide-injury` (4) and the
+two 6-plant classes cannot be in every part either, and get no warning.
+scikit-learn refuses with a `ValueError` only when `n_splits` exceeds every
+class, here from 41.
+
+### The deliberate break: scikit-learn's default
+
+`KFold(n_splits=10)` with its default `shuffle=False` cuts the file into
+contiguous blocks, and the file is sorted by class. Part 0 is positions 0–26:
+`charcoal-rot` 10, `diaporthe-stem-canker` 10, `rhizoctonia-root-rot` 7. When it
+is tested, `charcoal-rot` and `diaporthe-stem-canker` have no plant left in
+training: recall 0 by construction, the class of one again, at 10 plants.
+
+```
+KFold(n_splits=10), no shuffle     131 of 266, 0.4925        (shuffled k-fold 0.8891)
+recall 0      bacterial-pustule, charcoal-rot, diaporthe-stem-canker,
+              phyllosticta-leaf-spot, phytophthora-rot, powdery-mildew, purple-seed-stain
+              bacterial-blight 0.10
+```
+
+**A default is a decision**, as in `read_csv` and `roc_curve`, and this one
+halves the accuracy. It also refutes the reason given for prediction 11 below,
+*the same rows and the same classes*: unshuffled KFold has the same rows and
+classes as the shuffled one. **What keeps a score stable is the share of each
+class in every training part.** Shuffling keeps it roughly and stratification
+exactly; the continued deal kept it, so one plant moved; contiguous blocks
+destroy it.
+
+### Slips, each of which printed a plausible number or nothing at all
+
+- `all_classes[test_plant]` reads a label. It works on 307 rows, where labels
+  are positions; on 266 it would read the wrong plant or raise `KeyError`.
+  `.iloc`, as in the line below it.
+- The per-class assert read as failing on "one value, difference 0": `minlength`
+  gives ten values, and a difference of 0 would pass anyway.
+- The first group split's second assert compared positions, which is true of
+  every split.
+- The comparison of leave-one-group-out with scikit-learn printed `266 - equal`
+  differences, for 263 pairs: plants where groups were meant. `zip(...,
+  strict=True)` would also catch lists of different lengths.
+- `pd.crosstab(classes, "date")` takes the string as one constant and prints the
+  class counts in a single column, with no error.
+- `temporal_split` first without either check, then with `<=` where the promise
+  is `<`: a month shared by training and test would have passed.
+- The first per-class "recall" under unshuffled KFold was precision. Two `NaN`s
+  gave it away: recall's denominator is a class's plants, 10 for both, and only
+  a never-predicted class leaves a column empty. Anthracnose's 0.6818 is 15/22,
+  and anthracnose has 20 plants.
+- A formatting-only commit (`c45200d`) under the feature's message.
+
+### Concepts met in 1.7, part 2
+
+- **Division with remainder.** n = q · 10 + r: every part gets q, the first r
+  parts one more. 4 = 0 · 10 + 4; 307 = 30 · 10 + 7; 266 = 26 · 10 + 6.
+- **By construction.** A result that follows from how the procedure is built,
+  not from how good the model is: `2-4-d-injury`'s recall 0 under every split;
+  an assert that cannot fail while the dealing is right.
+- **Absolute and relative majority.** More than half the votes, 3 of 5, cannot
+  be beaten; the most votes, 2 of 5, win only if the rest split.
+  `herbicide-injury`'s 2 against `phytophthora-rot`'s 3.
+- **The ceiling of a metric.** One unlearnable class caps macro recall at
+  18/19 ≈ 0.947 for any model.
+- **An assert checks only what it states.** Per-class counts are not part sizes;
+  positions are not groups.
+- **Grouped cross-validation.** A group's rows go to the same side together;
+  leave-one-out is the case of groups of one. Twins in S; fields, regions and
+  years in C.
+- **Temporal split and distribution shift.** Train on the past, test on what
+  follows. The class mix shifts (alternaria 2 in training, 38 in the test); the
+  symptoms may shift too, which does not show here (brown-spot 7 of 7).
+- **Leakage that lowers the score.** 0.4395 with training ranges, 0.4204 with
+  ranges from all rows.
+- **A default is a decision.** `KFold`'s `shuffle=False` and `n_splits=5`.
+- **A library warning reports the worst case.** One class named, three with the
+  same problem not.
+
+### Predictions
+
+✓ right, ✗ wrong.
+
+1. The parts `herbicide-injury` lands in: 0, 1, 2, 3 ✓.
+2. The smallest class that reaches every part: first "od n" (the question used a
+   letter the code already uses), then 10 ✓.
+3. q and r for `2-4-d-injury`: 0 and 1 ✓.
+4. Whether the per-class assert passes for `2-4-d-injury` on 307: no, "one
+   value, difference 0" ✗ — it passes: ten values, 1 − 0 = 1.
+5. A class size for which it fails: none ✓, derived from q and q + 1, with r = 0
+   included.
+6. Any split in which KNN could name `2-4-d-injury`: "ne kapiram" (the question
+   was too abstract), then no, it is not in training ✓.
+7. `herbicide-injury`'s recall under stratified 10-fold on 307: between 0 and 1
+   ✗ — 0 on every seed. Two votes of five as the minimum ✓, but
+   `phytophthora-rot` had an absolute majority every time.
+8. The highest macro recall with one unlearnable class among 19: 18/19 ✓.
+9. Part sizes on 307: the first parts larger ✓, for the wrong reason ✗ —
+   307 = 30 · 10 + 7 describes one deck, while the function deals each class
+   from part 0. Then part 9 = 29 and part 0 = 33 ✓, and parts 1–8 as
+   32 32 32 31 31 29 29 29 ✓.
+10. Whether the part-size assert would fail on 266: yes, from
+    `phytophthora-rot`'s 6 × 2 + 4 × 1 ✗ — that is one class; the part totals
+    are 27 and 26 ✓ once computed, and it passes.
+11. The continued deal's effect on the 266 stratified mean: under one plant ✓ —
+    +0.1, seed 0 alone. The reason, "the same rows and the same classes", is
+    refuted by the break.
+12. Leave-twins-out, predictions that change: 1–3 ✗ — none.
+13. Temporal Apr–Jul against Aug–Oct: 0.60–0.70 ✗ — 0.4395. Of three reasons, the
+    class mix ✓ and the mixed months of a random split ✓; "only 109 training
+    plants" ✗, since the random splits have 109 too. The size was
+    underestimated: 138 of the 157 test plants belong to classes with 2 to 4
+    training plants.
+14. Brown-spot's 7 test plants, with 33 in training: 6 or 7 ✓ — 7.
+15. The cut one month later: above 0.50 ✓ — 0.7228.
+16. Ranges from all rows in the temporal split: down ✓ — 0.4204, and the leakage
+    named without being asked.
+17. `LeaveOneGroupOut` against `leave_one_group_out_split`: identical, "maybe in a
+    different order" ✓ — identical, in the same order.
+18. Unshuffled `KFold`: below 0.60 ✓ — 0.4925.
+19. `StratifiedKFold` with a class of one: warns, then splits ✓.
+
+Hand computations: the `ngroup` toy, rows 0 and 2 and three numbers ✓; 263
+groups ✓; leave-one-group-out on the toy, {0, 2}, {3}, {1} ✓; June to September,
+1 of 5 ✓; the `date` term, 2/3 and 1/3 ✓; alternaria, 2 in training and 38 in the
+test ✓.
+
+### Open
+
+- Why `herbicide-injury`'s nearest neighbours are `phytophthora-rot` plants. All
+  four herbicide rows are incomplete, and so are 24 of phytophthora's 40: the
+  missingness pattern, for 4.5.
+- The continued deal's gain of about one plant per seed on 307 is not explained.
+- With training ranges a `date` term can exceed 1 (October against April,
+  |6 − 0| / 3 = 2), where Gower assumes at most 1. Every test plant of the
+  temporal split lies outside the training range.
+- Grouped splits with real groups: C, region and year, in phases 2 and 5.
+- A chi-square test of independence on class against month, offered next to 4.2;
+  McNemar on the 13 and the 5, in 8.1; a step that builds the p-value from zero,
+  before phase 2.
