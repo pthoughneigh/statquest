@@ -22,12 +22,27 @@ def knn(
     k: int,
     distance_function: Callable[[Vector, Vector], float],
 ) -> tuple[str, pd.Series]:
+
+    return vote(rank_neighbours(features, classes, plant, distance_function), k)
+
+
+def rank_neighbours(
+    features: pd.DataFrame,
+    classes: pd.Series,
+    plant: Vector,
+    distance_function: Callable[[Vector, Vector], float],
+) -> pd.Series:
     rows = np.asarray(features, dtype=float)
-
     distances = np.array([distance_function(plant, row) for row in rows])
-    nearest_positions = np.argsort(distances, kind="stable")[:k]
-    nearest_classes = classes.iloc[nearest_positions]
 
+    ranked_positions = np.argsort(distances, kind="stable")
+    ranked_classes = classes.iloc[ranked_positions]
+
+    return ranked_classes
+
+
+def vote(ranked_classes: pd.Series, k: int) -> tuple[str, pd.Series]:
+    nearest_classes = ranked_classes.iloc[:k]
     votes = nearest_classes.value_counts()
 
     tied = votes.index[votes == votes.max()]
