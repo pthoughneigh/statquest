@@ -17,7 +17,7 @@ Vector = np.ndarray | pd.Series
 
 def knn(
     features: pd.DataFrame,
-    classes: Vector,
+    classes: pd.Series,
     plant: Vector,
     k: int,
     distance_function: Callable[[Vector, Vector], float],
