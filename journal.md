@@ -2676,3 +2676,405 @@ test ✓.
 - A chi-square test of independence on class against month, offered next to 4.2;
   McNemar on the 13 and the 5, in 8.1; a step that builds the p-value from zero,
   before phase 2.
+
+
+## 1.8 — Bias and variance
+*2026-11-02 – 2026-11-07.*
+
+KNN finally gets a dial. With Gower as before, `k` runs from 1 to 50 on both
+row sets, and two curves are drawn: the error on the plants the model was built
+from, and the error on plants it has not seen, under stratified 10-fold with
+seeds 0–9. The task in the plan is to explain both ends of the curve. Here
+neither end was what the textbook picture predicts.
+
+### Two words, two objects
+
+The video's two words, made measurable. **Variance** is how much the answer for
+one and the same plant changes when the training plants change. 1.7's
+phyllosticta plant (neighbours phy, alt, phy, alt, phy, brown, alt) loses its
+vote to alternaria when its 3rd and 5th neighbours go to the test part, with
+every distance unchanged. **Bias** is an error that stays the same whatever
+training plants the model gets.
+
+1.7 used the same two words for the shift and the wobble of one split. Those
+were the bias and the variance of the *measurement*, the accuracy figure. Here
+they belong to the *model*, its answer for a plant. Same idea, different object.
+
+On the dial, k = 1 is the complex end, because one plant decides and swapping
+that plant can flip the answer. k = 50 is the simple end, because fifty vote and
+small classes drown.
+
+### Training error for a model that does not train
+
+KNN has no fitting step: the training plants *are* the model. Its training
+error asks every plant with itself among the candidates, 266 of them and not
+265. That is the **resubstitution error**. In the code it is the single pair
+(all positions, all positions), so one function draws both curves.
+
+At k = 1 on 266 rows: 266 of 266. "Every plant is its own nearest" needs one
+amendment. 263 plants sort themselves first. The later twin of each identical
+pair (positions 47, 111, 194) sorts its twin first, because `kind="stable"`
+keeps file order among equal distances. The twin has the same class, so the
+count survives.
+
+His own question at this point: does S have *conflict duplicates*, identical
+rows with different classes? It does not: 3 identical pairs on 266, 4 on 307,
+each pair one class. If it had, every model would have to give both rows one
+answer, and at least one would be wrong. That is **irreducible error**, the
+third source of error beside bias and variance.
+
+### Distance 0 without identical rows: plant 302
+
+On all 307 rows the training error at k = 1 is not 0 but 3 of 307. Plant 302
+(the only `2-4-d-injury`) gets `phytophthora-rot`, and 304 and 305
+(`herbicide-injury`) get `2-4-d-injury`.
+
+Gower compares only the columns measured in both plants. Plant 302 is measured
+in 5 of 35, all of them about the leaf: `leaves`, `leafspots_halo`,
+`leafspots_marg`, `leafspot_size`, `leaf_malf`. It is at distance 0 from 21
+plants: 13 `phytophthora-rot`, 6 `cyst-nematode`, 2 `herbicide-injury`.
+
+```
+                      =1    =0   holes
+leaves               274    33       0      shared by 302 and its 19 partners
+leaf_malf             14   268      25      302 has 1; 19 of the 25 holes are its partners
+```
+
+**For 19 of the 21 the "identity" rests on one column**, `leaves`, abnormal in
+274 of 307 plants. The column that would separate them is `leaf_malf`. 302 has
+a malformed leaf, a symptom 14 plants have, and all 19 have a hole there. The
+other six `leaf_malf` holes are `diaporthe-pod-&-stem-blight` plants with normal
+leaves, at distance 1. Only 304 and 305 agree with 302 on all five columns.
+
+Of a zero-distance pair with different classes, only the plant later in the file
+errs at k = 1: the stable sort puts the earlier one first in both lists. And
+`leaves` has no holes, so every pair shares at least one column and Gower never
+returns `NaN` on S.
+
+These three errors are not irreducible: the rows differ. The distance makes
+them.
+
+### Rank once, vote for every k
+
+Of the three steps in `knn` (distances, sort, vote over the first k), only the
+vote depends on k. `knn` was split into `rank_neighbours`, which returns the
+candidates' classes nearest first, and `vote`, which counts the first k and
+holds the tie rule, the only place it lives. The 1.6 table came back identical
+at full precision (`50cf60d`). `correct_predictions_per_k` ranks each test plant
+once and votes 50 times, so 500 passes per row set become 10. Its k = 5 column
+reproduces 1.7's stratified hits per seed:
+
+```
+266   243 241 242 239 241 240 239 241 243 238
+307   274 273 272 273 272 273 270 269 273 274
+```
+
+### The curves
+
+![Training and validation error across k for 266 and 307 rows](figures/gower_knn_error_by_k.png)
+
+```
+error                 k = 1    k = 2    k = 3    k = 5    k = 50     lowest validation
+266   training       0.0000   0.0000   0.0263   0.0602   0.4624
+      validation     0.0880   0.0880   0.1008   0.0951   0.5045     k = 1, 0.0880
+307   training       0.0098   0.0098   0.0261   0.0717   0.4853
+      validation     0.1450   0.1450   0.1127   0.1130   0.5173     k = 3, 0.1127
+```
+
+**k = 1 and k = 2 are identical everywhere**, on both sets and both curves. If
+the two neighbours agree, the answer is the first one's class. If they disagree,
+the vote is 1:1 and the nearest representative wins, which is the first
+neighbour again.
+
+`np.argmin` returns the first of equal values. On 266, k = 2 ties k = 1 by
+construction. On 307, k = 4 ties k = 3 by coincidence: 2,724 hits over ten seeds
+for both, different seed by seed.
+
+### The band, and the two spreads
+
+The band is ±1 sd of the validation error across seeds. At k = 5 on 266 it is
+0.0064, about 1.7 plants. The gap between the two curves is 0.035, about 9.3
+plants. The band is a third of the gap at k = 5, and an eighth at k = 1.
+
+It is narrow because every seed tests every plant exactly once. A new seed
+changes only who trains with whom.
+
+**There are two spreads, and they measure different things.**
+
+```
+k = 5, 266 rows                          sd
+ten fold errors in one run, seed 0      0.040     (folds from 0.037 to 0.154)
+the same, over seeds 0–9                0.031 to 0.067, mean 0.051
+the mean of a run, across seeds         0.0064    (the band)
+```
+
+A fold is a measurement on 27 plants, where one plant moves its error by
+1/27 = 0.037. In a whole run one plant moves it by 1/266 = 0.004. The fold
+spread is the "mean ± sd" of cross-validation reports and of `cross_val_score`;
+the seed spread is how much the final number moves. **The standard error of a
+proportion**, √(p(1 − p)/n), predicts the fold spread: √(0.095 · 0.905 / 27) =
+0.056 against the measured 0.051, a little lower because stratification
+balances the folds. The square-root rule of 1.7 is its small-p case. The same
+formula on 266 plants gives 0.018. That is roughly how much the error would move
+on another field of 266 plants, three times the band, because the seeds reuse
+the same plants (1.7, for 8.1).
+
+The sd is taken with `ddof=1`. `np.std` divides by n by default: 0.00506
+against 0.00533 on 307 at k = 5, a factor of √(10/9) ≈ 1.054. Why n − 1: the
+deviations from a mean computed from the same numbers sum to zero, so only n − 1
+of them are free. On 240, 241, 245 the deviations from 242 are −2, −1, +3, and
+the third is forced. And the mean is the point nearest its own numbers: squares
+around 242 sum to 14, around 241 or 243 to 17. The spread around the true value
+is larger, and dividing by n − 1 makes up for it. **Bessel's correction.** This
+closes two items open since 1.7 part 1.
+
+### The left end: a hub on 307, none on 266
+
+On 266 the smallest k is the best. Under leave-one-out, k = 1 and k = 5 differ
+on 15 plants, 9 for k = 1 and 6 for k = 5, all of them leaf diseases: a net of 3.
+There is no left arm to explain.
+
+On 307 there is one. Under leave-one-out, k = 1 gets 261 plants and k = 3 gets
+272, gaining 23 and losing 12. **Plant 302 is the first neighbour of 20 plants**:
+13 `phytophthora-rot`, 4 `cyst-nematode` (296, 297, 298, 301), 304, 305, and
+181, an `anthracnose`. In resubstitution each of the first 17 was protected by
+itself, at distance 0 and earlier in the file than 302. Leave-one-out takes that
+away, and they are not at distance 0 from one another. The cyst twins 299 and
+300 still protect each other.
+
+181 is not at distance 0 from 302. It is at 0.2: the two agree on four leaf
+columns and differ on `leaf_malf`. Its nearest classmate, 185, is at 0.205 over
+all 35 columns. Gower treats one difference in 5 and seven-odd in 35 as equally
+strong evidence, so a plant measured in 5 columns is near everyone. 302 is within
+0.2 of 102 plants, a third of the set. **A point that is the nearest neighbour of
+many is a hub.** It is 1.2's finding, that Gower over different numbers of
+columns is not comparable, now with a measured cost.
+
+At k = 3, 18 of the 20 are right. 304 and 305 stay wrong. Their three neighbours
+are three classes: 302 at 0, the other herbicide plant at 0.078, and a
+`phytophthora-rot` plant. At 1:1:1 the nearest wins, and that is 302.
+
+In the session's terms: at k = 1 the answer for 20 plants depends on a single
+training plant. That is variance, concentrated in one hub that the handling of
+holes created. 266 has no such plant, so it has no left arm.
+
+### The right end: when a small class can be outvoted
+
+The 266 validation curve jumps between k = 18 and 19. Under leave-one-out:
+
+```
+recall               k = 18   k = 19
+charcoal-rot          1.00     0.20      −8
+rhizoctonia-root-rot  0.70     0.10      −6
+bacterial-pustule     0.40     0.10      −3
+purple-seed-stain     0.50     0.40      −1
+brown-spot            0.875    0.85      −1
+brown-stem-rot        0.90     1.00      +2
+powdery-mildew        0.80     1.00      +2
+hits                   203      188     −15
+```
+
+A class of 10 keeps 9 plants in training. At k = 18 a rival can reach at most 9
+votes, and a 9:9 tie goes to the nearest representative, a classmate. At k = 19
+a rival can reach 10. **With m votes of its own, a class can first be outvoted
+at k = 2m + 1.**
+
+Who takes them was predicted from the field before it was measured.
+`charcoal-rot` goes to `brown-stem-rot`, 8 of 10 plants at 10:9: both are stem
+diseases with wilting and damage to the vascular tissue. `rhizoctonia-root-rot`
+goes to `phytophthora-rot`, 9 of 10: both are soil-borne rots of the root and
+the stem base. At large k a small class drowns in the larger class with the
+most similar symptoms, which answers 1.4's question of whether the confusions
+make agronomic sense.
+
+The training curve jumps two steps later, from 213 to 197 between k = 20 and 21,
+with the same two classes. There the plant votes for itself: m = 10, and
+2m + 1 = 21. And 2m + 1 is only the earliest k: the 6-plant classes on 307
+(`cyst-nematode`, `diaporthe-pod-&-stem-blight`) fall at 12 in validation and at
+14 in training, one step after 11 and 13.
+
+This is bias in the session's terms. At k = 19 `charcoal-rot` is wrong in the
+same way whatever the training part: 1.3's "k is a threshold a rare class has
+to clear".
+
+### The far end
+
+Leave-one-out at k = 265 on 266, where every training plant votes, gets **0
+plants right**. The predictions are `frog-eye-leaf-spot` 107,
+`alternarialeaf-spot` 88, `brown-spot` 71. Holding a plant out removes a vote
+from its own class. A leaf-spot plant's class has 39 against 40 and 40, and
+every other plant gets one of the three. The 1.1 baseline gets 40 because it
+counts all 266, including the plant it asks.
+
+Stratified 10-fold at the same extreme gets 103 to 106 plants over seeds 0–9.
+Every training part keeps 36, 36 and 36 of the three, the tie survives, and the
+nearest representative decides. Resubstitution at k = 266 gets 120: each
+leaf-spot plant is its own nearest representative. This is 1.7's conclusion in
+its extreme form: **what keeps a score stable is the share of each class in
+every training part.**
+
+### The scikit-learn reference
+
+The comparison uses the same Gower matrix (266 × 266, `metric="precomputed"`)
+and the same leave-one-out, so any difference comes from the model:
+`validation_curve(KNeighborsClassifier(metric="precomputed"), D, y,
+param_name="n_neighbors", param_range=range(1, 51), cv=LeaveOneOut())`.
+
+```
+k              1     2     3     5    18    19    50
+ours         242   242   239   239   203   188   135
+sklearn      245   236   239   236   183   181   130
+```
+
+**They agree on 1 of 50 values of k**: k = 3 on his machine, and k = 29 on
+another. The two sources of the differences were named before the run.
+
+**Equal distances decide who enters the first k.** On 266, six plants have their
+nearest distance shared by plants of different classes: 159, 176, 199, 231, 237
+and 248. The stable sort takes the earlier file position. scikit-learn uses
+`np.argpartition`, which promises no order among equal values. Plant 237 is at
+0.0381 from both 87 (`brown-spot`) and 231 (`frog-eye-leaf-spot`). On one
+computer scikit-learn took 87, on the other 231: the same matrix and the same
+call. scikit-learn's documentation warns that with equal distances and
+different labels the result depends on the order of the training data.
+`kind="stable"` gives the same answer on every computer.
+
+**Equal votes go to the class whose name sorts first.** A toy shows it: the
+nearest neighbour `zeta`, the next `alpha`, k = 2, predicted `alpha`. Hence
+scikit-learn's k = 2 differs from its k = 1 (245 against 236). Hence also its
+small classes fall one step early. At k = 18 a 9:9 tie goes to `brown-stem-rot`
+over `charcoal-rot` and to `phytophthora-rot` over `rhizoctonia-root-rot`:
+`charcoal-rot` falls from 10 plants right to 1, `rhizoctonia-root-rot` from 7 to
+1. **2m + 1 becomes 2m when the rival's name sorts first.** Of the 20 plants
+between the curves at k = 18, 15 are these two classes. A tie rule is a
+modelling decision, with a price in plants.
+
+Our 50-value leave-one-out curve takes about 7 seconds. `validation_curve` takes
+about 70, because it starts over for every k.
+
+The first distance matrix filled its loops with `range(0, n - 1)`, and that
+accidental run showed both lessons at once. Row and column 265 stayed 0, so the
+last frog-eye plant was at distance 0 from everyone. At k = 1 only the 40
+frog-eye plants were right. At k = 2 every vote was 1:1 between plant 265 and
+the true nearest neighbour, settled by name: the classes sorting after
+`frog-eye-leaf-spot` (`phyllosticta-leaf-spot`, `phytophthora-rot`,
+`powdery-mildew`, `purple-seed-stain`, `rhizoctonia-root-rot`) lost every plant. The diagonal, symmetry and
+twin checks all passed the broken matrix. A check is worth something only if the
+bug fails it: the number of off-diagonal zeros, which must be 6.
+
+### The deliberate break
+
+Skipped, by decision. The reference comparison changed one rule, the tie rule,
+and measured what it costs.
+
+### Slips, each of which printed a plausible number or none
+
+- The first training error rebuilt the training part from `iloc[:n]` and
+  `iloc[n + 1:]`: leave-one-out again, 242 instead of 266. It also kept a
+  running accuracy, which follows the class-sorted file.
+- The zero count from 302 looped `range(0, 302)` and stopped at 301: 19 instead
+  of 21. The two plants it missed, 304 and 305, were the two herbicide errors.
+- `leaf_malf` measured where the question was `leaves`.
+- `plant = features.iloc[test_position]` passed a `Series` labelled by column
+  names to Gower, which reads `a[0]`: `KeyError: 0` under pandas 3.0, 1.4's rule.
+  `.to_numpy()`.
+- `np.std` without `ddof=1`.
+- The figure: the 266 training curve drawn in the right panel, then the 307
+  validation curve in the 266 panel. Its minimum, 0.113 at k = 3, was 307's from
+  the printed step: a curve is checked against a number already known.
+- The first `__main__` of `bias_variance.py` branched on the dataset's name
+  inside the loop over datasets. It left the training error commented out, with
+  `features, classes` (always 266 rows) where the loop's variables belonged,
+  which would raise `IndexError` on 307. It also called positions `indices`.
+  Rewritten in the session.
+- The distance matrix with `range(0, n - 1)`, above.
+
+### Concepts met in 1.8
+
+- **Bias and variance of a model.** An error that stays the same whatever the
+  training plants: `charcoal-rot` at k = 19. How much one plant's answer moves
+  with them: the phyllosticta vote flip, and 302 at k = 1. In 1.7 the same words
+  named the shift and wobble of a measurement.
+- **Model complexity.** k = 1 is the most flexible, since one plant decides; at
+  k = all, the vote is the class counts.
+- **Resubstitution error.** The training error of a model that keeps its data:
+  the single pair (all, all). 266 of 266 at k = 1.
+- **Irreducible error.** Identical inputs with different labels; any model pays
+  at least one error. None in S.
+- **Hub.** A point that is the nearest neighbour of many: 302, measured in 5
+  columns, within 0.2 of 102 plants and first for 20.
+- **The voting threshold.** With m own votes, outvoted from k = 2m + 1: 19 in
+  validation, 21 in training; 2m when ties go by name.
+- **Degrees of freedom and Bessel's correction.** Deviations from a sample's
+  own mean sum to zero, so n − 1 are free: −2, −1, +3.
+- **Standard error of a proportion.** √(p(1 − p)/n): 0.056 for a fold of 27,
+  0.018 for 266. The square-root rule is its small-p case.
+- **Two spreads.** Across folds, one measurement on 27 plants (0.051); across
+  seeds, the final mean (0.0064).
+- **A tie rule is a modelling decision.** Stable sort against
+  `np.argpartition`; nearest representative against alphabetical order. One
+  decides reproducibility, the other 20 plants at k = 18.
+- **A check must be one the bug fails.** Off-diagonal zeros, 6.
+
+### Predictions
+
+✓ right, ✗ wrong.
+
+1. Which end of the dial is too complex: k = 1 (one plant, high variance) and
+   k = 50 too simple (high bias) ✓.
+2. Training error for KNN: a formula first, 1 − hits / "total correct", which is
+   the half that is the same for both curves. Then 266 candidates for plant 0,
+   not 265 ✓.
+3. Training errors at k = 1 on 266: 0 ✓, "each plant is its own nearest", which
+   needed the twins.
+4. Plant 47's first neighbour: 46, because the stable sort keeps file order ✓.
+5. Distance 0 without identical rows: yes ✓. The mechanisms came in turn: the
+   ordinal range of 0 ✗ (a range of 0 allows no difference), columns in neither
+   list ✗ (all 35 are covered), the `NaN` skip ✓.
+6. Training errors at k = 1 on 307: 1–5 ✓ — 3. The reason, "we have `NaN` now",
+   explained more than 0 but not at most 5.
+7. A and B at distance 0, different classes, A first: B errs ✓.
+8. Plants at distance 0 from 302: 6–15 ✗ — 21.
+9. Columns behind Gower(302, 32) = 0: 2–10 ✗ — 1.
+10. Share of plants with abnormal leaves: under a third, from a measurement of
+    `leaf_malf` ✗ — `leaves`, 274 of 307.
+11. Resubstitution hits at k = 5 on 266: 240–265 ✓ — 250. Reason sharpened: the
+    plant enters and the fifth neighbour drops out.
+12. The validation minimum on 266: k = 3–10 ✗ — k = 1.
+13. The validation minimum on 307: above 10 ✗ — k = 3. The direction relative to
+    266 was right, because of 302.
+14. Why k = 1 and k = 2 always agree: the tie rule ✓.
+15. The band against the gap between the curves: wider ✗ — about a third of it
+    at k = 5.
+16. Why the seed spread is about 2 plants: twins ✗, then every plant tested once
+    in every seed ✓.
+17. The sd of ten fold errors in one run: larger than 0.0064 ✓ — 0.051, and
+    estimated as 0.0565 with √(p(1 − p)/n) ✓.
+18. Plants whose first neighbour under leave-one-out is 302: 6–12 ✗ — 20.
+19. Of those 20, right at k = 3: 14–20 ✓ — 18. Written as "0–6", meant as errors.
+20. The classes behind the jump at k = 19: the small ones ✓, derived as 9
+    classmates against 10 ✓.
+21. Who takes them: `brown-stem-rot` and `phytophthora-rot` ✓, from the field.
+22. Why the training curve jumps two steps later: the plant's own vote,
+    m = 10 ✓.
+23. Accuracy at k = 265 under leave-one-out: about 0.15 ✗ — 0.
+24. Agreement with scikit-learn: on some values of k ✓, with both sources named
+    ✓ — 1 of 50.
+25. Which classes scikit-learn loses at k = 18: "ne znam", then the 9:9 tie by
+    name ✓.
+
+Hand computations: the band and the gap in plants, 1.7 and 9.3 ✓; √(p(1 − p)/n)
+for a fold, 0.0565 ✓ (written with 1 − 0.905, computed with 0.905); the
+mechanism behind n − 1, found and named on his own ✓.
+
+### Open
+
+- `np.arange(1, 51)` in the figure code, where `max_k` is defined.
+- Gower over few shared columns makes hubs. A distance that weighs how many
+  columns were compared, or treats holes explicitly, belongs to 4.5 and to MDS
+  over Gower in 6.3. 1.7's open question, why herbicide's neighbours are
+  `phytophthora-rot` plants, is the same family.
+- The error on another field of 266 plants, about ±0.018, against a band of
+  ±0.006: for 8.1.
+- Comparisons with scikit-learn at exact ties go by properties, not by values.
+  Its answer can differ from one computer to another.
