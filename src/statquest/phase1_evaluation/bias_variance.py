@@ -103,7 +103,7 @@ if __name__ == "__main__":
             f"{mean_validation_errors[best_position]:.4f} at k = {best_position + 1}"
         )
 
-    k = np.arange(1, 51)
+    k = np.arange(1, max_k + 1)
     plots_path = Path(__file__).parents[3] / "figures"
     plots_path.mkdir(parents=True, exist_ok=True)
     fig, axes = plt.subplots(1, 2, figsize=(12, 7), sharey=True)
