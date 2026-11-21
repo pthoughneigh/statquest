@@ -3078,3 +3078,329 @@ mechanism behind n − 1, found and named on his own ✓.
   ±0.006: for 8.1.
 - Comparisons with scikit-learn at exact ties go by properties, not by values.
   Its answer can differ from one computer to another.
+
+## 2.1 — Least squares, the main idea
+*2026-11-07 – 2026-11-21.*
+
+Phase 2 opens. Until now a model answered with the name of a disease and the
+measure counted hits. Here it answers with a number, a yield, and the error is
+how far that number is from the measured one. The data are synthetic for the
+first time: a generator draws yields from a line chosen in advance, so the right
+answer is known before the method runs. The step is the video's main idea: the
+residuals, the sum of their squares around the mean and around a line, R², and
+the line found by turning it until that sum is smallest.
+
+### The video in his words
+
+Four points: linear regression and least squares as names for fitting a line;
+the line that makes the sum of squared residuals smallest; a line is y = ax + b;
+the first derivative set to zero at the minimum. What was missing is where the
+video starts, the horizontal line at the mean. That became the first sub-step.
+
+### Five plots by hand
+
+Doses 1 to 5, yields 2, 4, 5, 4, 5 t/ha.
+
+A model that ignores the dose must give every plot the same number. His answer
+was the mean, 4, with the reason that the mean is the best constant under
+squared error. In 1.1 the best constant under accuracy was the most common
+class: which constant is best depends on how the error is measured.
+
+```
+residuals around 4     -2   0   1   0   1      squares 4 0 1 0 1   SS(mean) = 6
+plain sum               0
+```
+
+The plain sum is 0 for any data, because the mean is the sum divided by n:
+20 − 5 · 4 = 0. For the tilted line y = 0.5x + 2.5 he predicted a negative sum,
+because a and b are both positive. It is 0 again. The line passes through
+(3, 4), the mean dose and the mean yield, and every line through that point has
+a residual sum of 0 whatever its slope, since the deviations of the doses around
+3 sum to 0 as well. Even y = 10x − 26, which predicts −16 t/ha at dose 1, sums
+to 0. **That is why the residuals are squared: the plain sum cannot tell a good
+line from an absurd one.**
+
+The squares of the tilted line's residuals (−1, 0.5, 1, −0.5, 0) he bounded
+before computing them: none above 1 in size, so the sum is under 3. It is 2.5.
+
+### Vertical, not perpendicular
+
+The residual is measured straight up, at the same dose. The shortest distance
+from the point (1, 2) to the line is the perpendicular one, 1/√1.25 = 0.894,
+because the vertical segment is the hypotenuse. Asked why least squares still
+measures vertically, he answered as an agronomist: the dose is the input we
+control, the yield the output we predict; the line says 3 at dose 1, the field
+says 2, the miss is 1 t/ha; and the nearest point on the line lies at a dose
+that was never applied on that plot. **Regression of y on x.** When neither
+number is chosen, say two measurements of the same plant, the perpendicular
+distance makes sense, and that is PCA in 6.1.
+
+### Turning the line around (3, 4)
+
+```
+slope    0     0.5    1      0.6
+SS       6     2.5    4      2.4
+```
+
+For slope 1 he predicted a value between 2.5 and 6: the steeper line comes
+closer to some points and moves away from others. It is closer only at dose 1
+and further at doses 2, 4 and 5.
+
+Asked where the bottom of the curve lies, he answered 0.5. My question had not
+said the whole curve, every slope, and among the three slopes tried 0.5 is
+indeed the lowest. Asked again for the whole curve, he checked 0.6, got 2.4, and
+put the bottom between 0.5 and 1, adding that without that extra check he would
+not know why. **Three points cannot place the bottom; the best of the values
+tried is not the minimum.**
+
+### The curve, and two slopes
+
+![The five plots with the mean line and the best line, and the sum of squares for every slope](figures/least_squares_visualization.png)
+
+The grid: slopes from −0.5 to 1.5 in steps of 0.01, each line through the mean
+point (b = ȳ − a·x̄), the sum of squares for each. The bottom is at 0.6, 2.4. He
+predicted "between 0.6 and 1, maybe exactly 0.6", on the grounds that the sum
+fell from 0.5 to 0.6. A fall places the bottom to the right of 0.5, not of 0.6:
+a bottom at 0.58 gives the same fall. The grid's neighbours, 0.59 and 0.61,
+give 2.401 each, so the grid knows only that the bottom lies between them.
+Whether it is exactly 0.6 is the derivative's job, in 2.2.
+
+His summary had "slope = 0" at the minimum, and on this picture the word slope
+means two things. The horizontal axis is the slope of the line, 0.6 at the
+bottom. The zero belongs to the curve itself: how much the sum changes when the
+line's slope grows a little. From 0 to 0.01 the sum falls from 6 to 5.881,
+−0.119 per step; from 0.59 to 0.61 it does not change. It took three answers
+(0.6, the value 2.4, and 0.001) and an explanation from zero, with two words for
+the two things, before it landed: at slope 1 the curve's steepness is positive,
+so the bottom is to the left. His "keep going right while it falls" from earlier
+is the rule, and it is the idea of gradient descent in 2.7.
+
+### R²
+
+```
+R² = (SS(mean) − SS(fit)) / SS(mean) = (6 − 2.4) / 6 = 0.6
+```
+
+The share of the flat line's error that the dose removes. That the slope is also
+0.6 is a coincidence of these five numbers. The same formula works for any line:
+slope 1.5 has a sum of 10.5, so R² = −0.75, a line worse than ignoring the dose.
+The least squares line cannot go below 0 on its own data, because the flat line
+is one of its candidates. On new data it can.
+
+### The first code, and a check that could not fail
+
+`sum_of_squared_residuals(y_true, y_pred)` and four checks, 6, 2.5, 4 and 2.4.
+The first run printed 6, 2.75, 5 and 2.7600000000000002: the prediction was
+computed from the yields instead of the doses. Each wrong value was the target
+plus a². The check for (0, 4) passed, because with a = 0 the term a·x
+disappears, so that check could not see the bug. Asked what the one passing line
+does not use, he found it at once. A check is worth something only if the bug
+fails it, as in 1.3.
+
+He predicted that the line (0.6, 2.2) would print exactly 2.4, since the small
+rounding errors would cancel in the sum. It prints 2.3999999999999995: 0.6 and
+2.2 are not exact in binary, while 0.5 and 2.5 are, so only that line moves.
+The checks use `np.isclose`.
+
+The first names were `measured_values` for the predictions and `real_values`
+for the measurements, which are the same thing. Mathematics separates them with
+a hat, ŷ = ax + b, and the residual is y − ŷ: `y_true` and `y_pred`, in
+`confusion_matrix`'s order.
+
+### The generator
+
+The doses are an argument, because the experimenter chooses them; the generator
+is the field. His design: fixed doses 1 to 5 with replicates, because a wide
+range pins the slope and replicates show how much the yield varies at one dose.
+
+The noise is normal. 10,000 draws with σ = 1: 67.85% within ±1 and 95.41%
+within ±2, against 68.27% and 95.45%. The gap is the sample, √(p(1 − p)/n), about
+half a percentage point.
+
+The generator check, 200 plots per dose: first came the yields' own mean and
+standard deviation, 6.97 and 2.99, then the noise's, −0.029 and 0.989. The 2.99
+was explained later. Without noise the yields would be 3, 5, 7, 9 and 11, with
+variance 8 (first computed as √8 = 2.83, the standard deviation); the noise adds
+variance 1; 8 + 1 = 9 = 3². **Variances of independent parts add**; standard
+deviations combine like the legs of a right triangle. So on a large field the
+dose's share of the yield's variance is 8/9 = 0.889, and that is what R²
+estimates: 100,000 plots give 0.8877.
+
+### One field: seed 42
+
+Fifteen plots, doses 1 to 5 with three each, a = 2, b = 1, σ = 1.
+
+The grid from the five plots ended at 1.5. On this field its minimum landed on
+the last element: he saw the curve still falling in the plot and widened the
+grid himself. **A minimum on the edge of the grid is the wall of the search, not
+a minimum**, and the fitting function now asserts that it is neither the first
+nor the last point.
+
+```
+                         slope     intercept    R²
+grid, step 0.01          2.21      0.3675       0.93350
+np.polyfit               2.2136    0.3567       0.93350
+true line                2         1            0.92481
+```
+
+The grid is within half a step of `np.polyfit`, the reference (predicted: less
+than 0.005 away). The intercept misses by 0.63, three times the slope's 0.21.
+The fitted line is pinned at the mean point: it misses by 0.003 at dose 3, by
+0.42 at dose 1 and by 0.63 at dose 0. The intercept is a prediction at a dose
+the trial never tried, an extrapolation.
+
+R² was first reported as 0.93351, above what any straight line can reach on
+these data, since the least squares line has the smallest sum. The sum had been
+rounded to 10.47 before the division. Round only what is printed.
+
+On its own field the fitted line beats the true one: 10.47 for the residuals
+against 11.84 for the noise. The fitted line adapts to the noise a little. The
+residuals sum to 0, the noise to −0.038. **Residuals are measured from the
+fitted line, errors from the true one.**
+
+### A thousand fields
+
+Was 2.21 noise, or a broken method? One field cannot say; the generator can
+make a thousand.
+
+```
+doses                       plots   mean slope   sd of slope   σ / √Σ(x − x̄)²
+1 to 5, 15 per dose            75     1.99995       0.0808          0.0816
+1 to 5, 3 per dose             15     2.0058        0.1844          0.1826
+2.8 to 3.2, 3 per dose         15     2.0595        1.8431          1.8257
+```
+
+The first run used 15 plots per dose where 15 per field was meant. Five times
+fewer plots, he predicted, should raise the spread by √5, not by 5: about 0.18.
+It is 0.184. The mean sits on 2, so the method has no bias, and the spread of
+the slope from field to field is its **standard error**. 2.21 is about 1.2
+standard errors from 2: an ordinary field. The formula in the last column he
+brought himself.
+
+### The deliberate break: doses close together
+
+The same fifteen plots, with the doses squeezed around 3. He predicted about 1.8,
+from σ/√0.3 = 1.826, and it is 1.843. The old grid hits its lower edge at seed 0.
+Seed 42, the same noise as the 2.21 field, now gives 4.14: the miss is 2.14
+instead of 0.21, exactly ten times larger, because the same rise in noise is
+divided by a run ten times shorter. **More plots act through a square root, the
+spread of the doses acts directly**, as long as the response is linear over
+that range. For a trial that means a wide range of doses is worth more than
+replicates.
+
+### The modules
+
+`phase2_linear_models/data_generator.py` holds `generate_yields(doses, a, b,
+sigma, seed)`; its `__main__` checks that the noise has mean within 0.1 of 0 and
+standard deviation within 0.1 of 1. `least_squares.py` holds
+`sum_of_squared_residuals`, `predict_line`, `fit_linear_regression_grid` with
+the two edge asserts, and `r_squared`. Its `__main__` checks the five plots,
+runs the thousand fields for both designs with an `isclose` check against
+σ/√Σ(x − x̄)², and draws the figure. `r_squared` agrees with scikit-learn's
+`r2_score` (checked in `z.py`). The whole run takes about 13 seconds (`0e64aa2`).
+
+### Slips, each of which printed a plausible number or none
+
+- The yields where the doses belong, `a * y + b`: three checks off by a², the
+  fourth blind to it.
+- The yields' mean and standard deviation reported as the noise's: 6.97 and 2.99.
+- 15 plots per dose where 15 per field was meant: 0.081 instead of 0.184.
+- The sum of squares rounded before R²: 0.93351, above the maximum.
+- The mean line drawn at x̄ = 3 instead of ȳ = 4, caught against a number already
+  known.
+- `a = 2` named as the truth and then overwritten by the fitted slope inside the
+  loop, harmless only because the call still had the literal 2. The truth and the
+  estimate need two names, `true_a` and `a_hat`, as y and ŷ do.
+- Names: predictions and measurements swapped, residuals for the noise, and one
+  name for two grids.
+
+### Concepts met in 2.1
+
+- **Residual.** y − ŷ, measured vertically at the same dose: regression of y on
+  x. The perpendicular distance, 0.894 against 1 at dose 1, belongs to PCA.
+- **Sum of squares around the mean and around the line.** SS(mean) = 6 is the
+  baseline of regression, as the majority class was for classification;
+  SS(fit) = 2.4. MSE divides by n and has its minimum in the same place.
+- **The mean is the best constant under squared error**, and deviations from it
+  sum to 0. Any line through (x̄, ȳ) has a residual sum of 0, hence the squares.
+- **Least squares.** The criterion: the line whose squared residuals sum to the
+  least.
+- **argmin.** Where a function is smallest, not the smallest value: 0.6, not 2.4.
+- **Grid search.** It knows only its own points, within half a step; a minimum on
+  the edge is the wall of the search.
+- **Derivative as steepness.** Each point of a curve has a height and a
+  steepness; at the bottom the steepness is 0, and its sign says which way the
+  bottom is. The slope of the line and the steepness of the curve are two things.
+- **R², the coefficient of determination.** The share of SS(mean) the line
+  removes: 0.6 here, −0.75 for a line worse than the mean.
+- **Normal distribution.** The bell: about 68% within one σ, 95% within two;
+  67.85% and 95.41% in 10,000 draws.
+- **Variance**, the mean squared deviation. Variances of independent parts add:
+  8 + 1 = 9.
+- **Standard error of the slope.** σ/√Σ(x − x̄)²: 0.183 for doses 1 to 5 with
+  three plots each, measured 0.184 over a thousand fields.
+- **Unbiased estimate.** Averaged over many fields it hits the truth: 2.0058.
+- **Extrapolation.** The fitted line is pinned at the mean point, so its error
+  grows away from x̄: the intercept is a guess at dose 0.
+- **Errors and residuals.** Errors from the true line, residuals from the fitted
+  one; the residuals' sum of squares is smaller (10.47 against 11.84).
+- **The first model that fits.** KNN had no fitting step, so leave-one-out cost
+  one ranking per plant. A fitted line has to be refitted for every plant held
+  out: fifteen fits on a fifteen-plot field and 266 on the soybean data, against
+  F fits for F-fold.
+
+### Predictions
+
+✓ right, ✗ wrong.
+
+1. The number a model that ignores the dose should give every plot: the mean, 4,
+   as the best constant under squared error ✓.
+2. The plain sum of the residuals around the mean: 0 ✓; the reason restated the
+   fact.
+3. The plain sum for y = 0.5x + 2.5: negative or zero, probably negative,
+   because a and b are positive ✗ — 0, through (3, 4).
+4. The sum of squares of that line: under 3 ✓ — 2.5, bounded before computing.
+5. The perpendicular distance from (1, 2) against the residual 1: less ✓, the
+   hypotenuse ✓.
+6. Why least squares measures vertically ✓, with the nearest point lying at an
+   untried dose.
+7. The sum of squares for slope 1: between 2.5 and 6 ✓ — 4; the reason lacked
+   the size.
+8. Where the bottom lies: 0.5, read as among the three slopes tried, since the
+   question did not say the whole curve. Then between 0.5 and 1 ✓, from the 0.6
+   check.
+9. The line (0.6, 2.2) prints exactly 2.4 ✗ — 2.3999999999999995; "the errors
+   cancel" ✗.
+10. The grid's best slope: between 0.6 and 1, maybe exactly 0.6 — the hedge ✓,
+    the main band ✗, the reason a fall that places the bottom only right of 0.5.
+11. Where the zero of "slope = 0" is: at 0.6, the value 2.4, 0.001 ✗; after the
+    explanation, the steepness at slope 1 is positive ✓.
+12. The R² of the slope-1.5 line: below 0 ✓, worse than the horizontal line ✓.
+13. The slope fitted on generated data: near 2, not exactly ✓, depending on the
+    size of the noise, its pattern and the number of plots ✓; the spread of the
+    doses missing.
+14. The grid on seed 42: about 2.2, maybe a bit more ✓ — 2.21, partly read off
+    the band edge 2.2.
+15. Why the intercept misses three times more than the slope: the line pinned at
+    the mean dose 3 ✓.
+16. `np.polyfit` within 0.005 of 2.21 ✓ — 0.0036; the half-step reason missing.
+17. R² of seed 42: 0.8 to 0.95 ✓ — 0.9335, noise small against the dose's effect ✓.
+18. What adds up, standard deviations or variances: variances ✓.
+19. R² on 100,000 plots: 0.85 to 0.92 ✓ — 0.8877, from 8/9 ✓.
+20. The mean of a thousand slopes: 1.95 to 2.05 ✓ — 2.0058, with four reasons ✓.
+21. The spread with five times fewer plots: about 0.18 ✓ — 0.184, by √5 ✓.
+22. The spread with doses 2.8 to 3.2: about 1.8 ✓ — 1.843, by σ/√Σ(x − x̄)² ✓.
+
+Hand computations: SS(mean) = 6 ✓, given without the residuals; (6 − 2.4)/6 =
+0.6 ✓; the variance of 3, 5, 7, 9, 11 first as √8 ✗, the standard deviation,
+then 8 ✓; 0.08 · √5 = 0.179 ✓; 1/√0.3 = 1.826 ✓.
+
+### Open
+
+- The formula for the best line without a grid: 2.2, from the zero of the
+  steepness. It will replace the 13 seconds the grid takes for 2,000 fields.
+- The fitted line beats the true line on its own field. On a field it has not
+  seen it would not, which is the question cross-validation answers for a fitted
+  model.
+- A figure of the seed-42 field with the true and the fitted line from dose 0 to
+  5, the scissors, if wanted.

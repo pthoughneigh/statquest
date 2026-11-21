@@ -1,12 +1,14 @@
 # StatQuest, by hand
 
-Statistics and machine learning from the StatQuest YouTube course by Josh Starmer, implemented step by step in NumPy and pandas on one dataset. scikit-learn is only a dev dependency, used as a reference to check my results.
+Statistics and machine learning from the StatQuest YouTube course by Josh Starmer, implemented step by step in NumPy and pandas, first on one plant-disease dataset and, from phase 2, on synthetic data where the right answer is known in advance. scikit-learn is only a dev dependency, used as a reference to check my results.
 
-Work in progress: the latest step is 1.8, bias and variance.
+Work in progress: the latest step is 2.1, least squares.
 
 ## Dataset
 
-[Soybean (Large)](https://archive.ics.uci.edu/dataset/90/soybean+large) from the UCI Machine Learning Repository: 307 plants, 35 categorical symptoms (some nominal, some ordinal) and 19 diseases, with missing values.
+[Soybean (Large)](https://archive.ics.uci.edu/dataset/90/soybean+large) from the UCI Machine Learning Repository: 307 plants, 35 categorical attributes (most of them symptoms, the rest describing the season and the field; some nominal, some ordinal) and 19 diseases, with missing values.
+
+From phase 2 on, synthetic yields from `phase2_linear_models/data_generator.py`: a line chosen in advance plus normal noise, so the true slope is known before any method runs.
 
 ## Progress
 
@@ -20,6 +22,7 @@ Work in progress: the latest step is 1.8, bias and variance.
 | 1.6 | ROC curves and AUC | `phase1_evaluation/metrics.py` |
 | 1.7 | Train/test, k-fold, stratified k-fold, leave-one-group-out and temporal splits | `phase1_evaluation/splits.py` |
 | 1.8 | Bias and variance: training vs. validation error by k | `phase1_evaluation/bias_variance.py` |
+| 2.1 | Least squares: residuals, sums of squares, R², a grid search over slopes, a data generator with a known answer | `phase2_linear_models/least_squares.py`, `data_generator.py` |
 
 ## Results so far
 
@@ -42,6 +45,10 @@ Always guessing the most common disease scores 0.1504 accuracy on the same plant
 
 *ROC curves for brown-spot and frog-eye-leaf-spot, with the kNN operating point marked (step 1.6).*
 
+![Least squares on five plots](figures/least_squares_visualization.png)
+
+*Five plots with the mean line, the best line and its residuals, and the sum of squares for every slope (step 2.1). On a thousand generated fields the grid search finds the true slope 2 on average, with a spread of 0.184 that matches σ/√Σ(x − x̄)².*
+
 ## The journal
 
 [journal.md](journal.md) records, for each step, the decisions that could have gone the other way and the things that surprised me. Nothing goes there that can be read off the code.
@@ -62,6 +69,8 @@ uv run python -m statquest.phase1_evaluation.distances
 uv run python -m statquest.phase1_evaluation.baseline
 uv run python -m statquest.phase1_evaluation.knn
 uv run python -m statquest.phase1_evaluation.bias_variance
+uv run python -m statquest.phase2_linear_models.data_generator
+uv run python -m statquest.phase2_linear_models.least_squares
 ```
 
 Plots are written to `figures/`.
@@ -76,11 +85,14 @@ statquest/
 └── src/statquest/
     ├── phase0_foundation/
     │   └── load_soyabeans.py
-    └── phase1_evaluation/
-        ├── baseline.py
-        ├── bias_variance.py
-        ├── distances.py
-        ├── knn.py
-        ├── metrics.py
-        └── splits.py
+    ├── phase1_evaluation/
+    │   ├── baseline.py
+    │   ├── bias_variance.py
+    │   ├── distances.py
+    │   ├── knn.py
+    │   ├── metrics.py
+    │   └── splits.py
+    └── phase2_linear_models/
+        ├── data_generator.py
+        └── least_squares.py
 ```
