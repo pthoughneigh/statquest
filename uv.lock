@@ -637,6 +637,7 @@ dependencies = [
 dev = [
     { name = "ruff" },
     { name = "scikit-learn" },
+    { name = "scipy" },
 ]
 
 [package.metadata]
@@ -650,6 +651,7 @@ requires-dist = [
 dev = [
     { name = "ruff", specifier = ">=0.16.6" },
     { name = "scikit-learn", specifier = ">=1.9.1" },
+    { name = "scipy", specifier = ">=1.18.1" },
 ]
 
 [[package]]
