@@ -37,6 +37,19 @@ def fit_linear_regression_grid(
     return a_min, b_min
 
 
+def fit_linear_regression(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
+    x_mean = np.mean(x)
+    y_mean = np.mean(y)
+
+    numerator = np.sum((x - x_mean) * (y - y_mean))
+    denominator = np.sum((x - x_mean) ** 2)
+    a = numerator / denominator
+
+    b = y_mean - a * x_mean
+
+    return a, b
+
+
 def r_squared(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     y_mean = np.mean(y_true)
 
@@ -103,6 +116,11 @@ if __name__ == "__main__":
         print("Slopes std: ", dose_std)
 
         print("-" * 100)
+
+    a, b = fit_linear_regression(toy_x, toy_y)
+
+    assert np.isclose(a, 0.6)
+    assert np.isclose(b, 2.2)
 
     # Create figure with two panels
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
