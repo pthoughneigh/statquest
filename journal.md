@@ -3404,3 +3404,312 @@ then 8 ✓; 0.08 · √5 = 0.179 ✓; 1/√0.3 = 1.826 ✓.
   model.
 - A figure of the seed-42 field with the true and the fitted line from dose 0 to
   5, the scissors, if wanted.
+
+## 2.1a — The p-value from zero
+*2026-11-21 – 2026-11-22.*
+
+A step added to the plan by his decision on 21 November. No statistics is
+assumed in this project, and p-values were about to arrive on their own: the
+video for 2.2 ends with one for R², `scipy.stats.linregress` returns one, and
+2.5 is built on them. So the p-value is built here from zero, on the generator
+from 2.1, with no formula first: it is counted in a world made for the purpose,
+then read off a bell, and then rebuilt for a field where σ is not known.
+
+### The world where the dose does nothing
+
+The generator with a = 0, b = 7 and σ = 1, doses 1 to 5 with three plots each,
+seeds 0 to 9999, each field fitted on the grid from −1.5 to 1.5 in steps of
+0.01. About nine seconds. This is the **null hypothesis**, H₀: a = 0, made into
+10,000 fields.
+
+He predicted that the slopes would spread by about 0.18, because the spread
+depends on the noise and the doses, not on whether the true slope is 2 or 0. It
+is 0.182, against σ/√Σ(x − x̄)² = 1/√30 = 0.1826. The formula has no true slope
+in it.
+
+### A slope of 0.4
+
+Imagine a field of his own, the same design, whose fitted slope is 0.4. How
+often does the world where the dose does nothing produce a slope at least that
+far from zero, on either side? The 10,000 fields answer it by counting.
+
+```
+share of null fields with |slope| ≥ 0.4, grid rounded    0.0292   (292 of 10,000)
+the same fields, np.polyfit                               0.0279
+normal theory, 2(1 − Φ(0.4 · √30)), 0.4 · √30 = 2.1909    0.0285
+a million standard-normal draws beyond ±2.19              0.0290
+```
+
+His prediction came as a band and a number that disagreed: 2 to 10 percent,
+and 0.27 percent, computed as "inside ±3σ, so 100 − 99.73". 0.27% is the share
+beyond three standard errors. 0.4 is about 2.2 of them from zero, between two
+(4.55% beyond) and three, nearer the first, so 0.27% is only a lower bound. He
+was told only that his band and his number disagreed, the alarm of 1.6, and the
+count decided. The band was right.
+
+**Two-sided**: +0.4 and −0.4 count alike, because the question is how far from
+zero, not in which direction.
+
+### Ties on a float grid
+
+The raw count was 275, not 292. The grid's +0.40 is 0.4000000000000017 and
+passes `>= 0.4`; its −0.40 is −0.399999999999999 and fails. 14 fields sit on
++0.40 and 17 on −0.40. His first check of the ties used `==` and found none;
+with `isclose` it found 14 and 17. Which of the two passes was left unanswered
+and completed for him. Rounded to two decimals the grid gives 292, and 261
+fields lie strictly beyond. **A count must not depend on the sign: round a grid
+before comparing**, as in 1.6.
+
+### z and the standard bell
+
+The standard error of the slope is known here, 0.183, because σ is. Divided by
+it, the slope becomes **z = 0.4 / 0.183 = 2.19, the number of standard errors
+from zero**, and the question no longer depends on the design: what share of
+the standard bell lies beyond ±2.19? Φ(x) is the share of the standard bell
+below x, so the answer is 2(1 − Φ(2.19)) = 0.0285. He predicted that a million
+standard-normal draws would land close to the count, because both measure the
+distance from zero in standard errors: 29,030 of them, 2.903%. **Once the
+standard error is known, no field has to be simulated.**
+
+### What p = 0.029 says
+
+Three sentences, to pick the one that says what the number means for his field:
+
+1. The probability that the dose does nothing is 2.9%.
+2. If the dose did nothing, 2.9% of fields would give a slope at least this far
+   from zero.
+3. The probability that the true slope is 0.4 is 97.1%.
+
+He chose 2, with the reason in his own words: the p-value says how unusual our
+data are on the assumption that there is no effect, not how probable any
+hypothesis is. That answers the plan's question, what the number tells about
+the field and what it does not.
+
+Sentence 1 is the classic misreading. All 10,000 fields were made in the world
+where a = 0, so a count inside that world cannot say how likely that world is.
+That would need how often fertilizers work at all, a prior: Bayes, 4.2a.
+Sentence 3 says nothing p can say. A true slope of 0.4 appears nowhere in the
+computation; 0.4 is the slope measured on his field, and 97.1% is the rest of
+the same count, the 9,708 null fields that landed closer to zero.
+
+### A real field has no σ written on it
+
+z divided the slope by 0.183 = σ/√30, with σ = 1 known only because we wrote it
+into the generator. A farmer's field gives fifteen yields and the dose on each
+plot. σ is the standard deviation of the noise, the deviations from the true
+line. From which deviations can it be estimated on a real field: from the
+yields' mean, from the true line, or from the fitted line? He chose the fitted
+line, because the true line, the real a and b, is not known on a real field,
+and he named those deviations residuals himself. Why not the mean was told, not
+asked: when the dose does something, the yields spread because of the dose as
+well as the noise, 8 + 1 = 9 in 2.1.
+
+### Why n − 2
+
+The natural estimate of σ² from one field is the mean squared residual,
+SS(fit)/n. Is it unbiased, as the slope was? Asked where its mean over the
+10,000 null fields would lie, below 0.95, between 0.95 and 1.05, or above, he
+answered that he did not know. Three smaller questions did it:
+
+- The true line of the null world is flat, y = 7, and the deviations from it
+  are the noise itself. He put the mean of SS(true)/n between 0.95 and 1.05,
+  because the deviations are pure noise: right, though the reason stopped short
+  of the mean square of the noise being its variance, σ² = 1.
+- On how many of the 10,000 fields the fitted line has the smaller sum: all of
+  them, because the fitted line has the freedom to adapt both the slope and the
+  intercept to the data, so it cannot have a larger sum than the true line.
+- Then the first question again: below 0.95. A direction, without a size.
+
+```
+over the 10,000 null fields
+mean SS(true) / n                   1.0032
+mean SS(fit) / n                    0.8710
+fields with SS(fit) < SS(true)      10,000
+mean SS(true) − SS(fit)             1.984
+mean SS(fit) / (n − 1)              0.9332
+mean SS(fit) / (n − 2)              1.0050
+```
+
+The gap he computed by hand from the two means. Asked why it is about 2, and
+pointed back to his own 1.8 answer for Bessel's correction (the same data used
+for the mean and for the spread) and to his "freedom" of a moment earlier, he
+answered: because we estimate two parameters, a and b, so n − 2 = 13 are left.
+**Degrees of freedom.** Each number the line takes from the data lowers SS(fit)
+below SS(true) by about one σ² on average; the mean in 1.8 took one, hence
+n − 1. So **s² = SS(fit)/(n − 2)** estimates σ² without bias, and s = √s²
+estimates σ. The divisor is the number of degrees of freedom, not the number of
+plots.
+
+### s on one field: seed 42
+
+The field of 2.1, a = 2 and b = 1: SS(fit) = 10.4722, s² = 0.8056, s = 0.8975,
+and the estimated standard error s/√30 = 0.1639 against the true 0.1826. On
+this field s came out below σ; another field gives another s, because s is
+computed from that field's noise. His s, 0.8975265, differs from 0.8975280 in
+the sixth decimal because the sum of squares I gave him was rounded to 10.4722.
+
+### t
+
+**t = a_hat / (s/√30)**: z with the standard error estimated from the same
+field. For the share of null fields with |t| ≥ 2.19 he chose above 0.035,
+against z's 0.029 on the same fields. His reason: s varies from field to field,
+sometimes below the true σ = 1 and sometimes above; when it is below, the
+denominator is smaller and |t| is larger than |z|, so more fields cross 2.19;
+and the t distribution with 13 degrees of freedom has heavier tails than the
+standard normal, a name he brought himself.
+
+```
+share of the 10,000 null fields beyond ±2.19    counted   theory
+z, σ known                                       0.0292    0.0285   normal
+t, σ estimated                                   0.0463    0.0474   Student's t, 13 df
+```
+
+His reason had a hole: an s above 1 pulls t inward, so why does that not
+cancel? With σ = 1, t = z / s. On a field with z = 2 he computed t = 4 for
+s = 0.5 and 1.33 for s = 1.5. The same distance of s from 1 moves t outward by
+2 and inward by only 0.67: dividing by a number below 1 grows more than
+dividing by a number above 1 shrinks. The outward moves win, and that is what
+the heavier tails are.
+
+For his field, if t also came out 2.19: p = P(|T| ≥ 2.19) with 13 degrees of
+freedom, 0.0474, in his notation. With σ known the same 2.19 gave 0.029. **With
+σ estimated from the same fifteen plots, the same distance from zero surprises
+less**, because part of it can come from an s that happened to be too small.
+
+### More plots
+
+The same null world on 75 plots, 15 per dose, so 73 degrees of freedom. He put
+the share of |t| ≥ 2.19 closer to z's 0.029 than to 0.047: the estimate of the
+noise becomes more stable and closer to σ = 1, t looks more and more like z,
+and the t distribution with 73 degrees of freedom has thinner tails than the
+one with 13. The theory gives 0.0317.
+
+That share was checked against the theory and not counted. On 75 plots the
+standard error of the slope is 0.0816, so the grid's step of 0.01 is an eighth
+of it, and rounding the slope to the grid moves a count near the threshold by
+about as much as the difference being looked for: counted on his grid, z's
+share on 75 plots comes out 0.0342, against the theory's 0.0285.
+
+His reason was checked directly instead, by how much s itself varies. He
+predicted the standard deviation of s to be about two times smaller on 75
+plots, since it falls roughly as one over the square root of the degrees of
+freedom.
+
+```
+sd of s over 10,000 null fields    measured   σ / √(2 · df)
+15 plots, 13 df                     0.1948      0.196
+75 plots, 73 df                     0.0831      0.083
+ratio                               2.34        2.37
+```
+
+Five times more plots, but 73/13 = 5.6 times more degrees of freedom, because
+the line always takes two. His rule, in degrees of freedom, gives √5.6 = 2.37.
+
+The two-sided 5% cut, the number of standard errors beyond which 5% of the null
+fields lie on both sides together, is 1.960 for z, 2.160 for t with 13 degrees
+of freedom and 1.993 with 73.
+
+### The deliberate break
+
+Skipped, his decision. Three candidates were offered, each one changed line
+with a prediction; they are under Open.
+
+### The code
+
+All of 2.1a ran in `z.py`, and none of it went into the repository: nothing
+later imports it, and 2.2's comparison with `linregress` computes s and t
+again, from the closed form.
+
+### Slips, each of which printed a plausible number or none
+
+- The share beyond three standard errors, 0.27%, used as the share beyond 2.2,
+  against his own band of 2 to 10 percent.
+- `==` in the tie check: no ties at ±0.40; `isclose` found 14 and 17.
+- Mine: the sum of squares for seed 42 given rounded, 10.4722, which moved his
+  s in the sixth decimal. Round only what is printed, in my messages too.
+
+### Concepts met in 2.1a
+
+- **Null hypothesis.** The world where the effect is zero, H₀: a = 0, here
+  10,000 generated fields.
+- **p-value.** The share of the null world at least as far from zero as the
+  observation: 0.029 for a slope of 0.4 on fifteen plots with σ known. It is not
+  the probability that H₀ is true, and it says nothing about a true slope of
+  0.4.
+- **Two-sided.** Both directions count, +0.4 and −0.4.
+- **z.** The number of standard errors from zero: 0.4 / 0.183 = 2.19.
+- **The standard normal and Φ.** The bell with mean 0 and standard deviation 1;
+  Φ(x) is its share below x, so 2(1 − Φ(2.19)) = 0.0285 lies beyond ±2.19. The
+  3σ rule's 0.27% is the share beyond 3, a lower bound for anything nearer.
+- **Prior.** How likely a hypothesis is before the data, here how often
+  fertilizers work at all. p does not contain it; Bayes, 4.2a.
+- **Degrees of freedom.** n minus the numbers taken from the same data: 15 − 2 =
+  13 for a line, n − 1 for a mean in 1.8. Each number costs about one σ² of the
+  sum of squares: 1.984 on average for two.
+- **s² = SS(fit)/(n − 2).** The unbiased estimate of σ²: 1.0050 over the null
+  fields, against 0.8710 dividing by n and 0.9332 by n − 1.
+- **Estimated standard error.** s/√Σ(x − x̄)²: 0.1639 on seed 42, against the
+  true 0.1826.
+- **t and Student's t distribution.** t = slope / estimated standard error.
+  With 13 degrees of freedom its tails are heavier than the normal's, because s
+  varies and dividing by a small s grows more than dividing by a large one
+  shrinks: 0.0463 beyond ±2.19, against z's 0.0292.
+- **More degrees of freedom, t closer to z.** 0.0317 with 73. The standard
+  deviation of s falls as σ/√(2 · df): 0.195 and 0.083.
+- **The 5% cut.** 1.960 for z, 2.160 for t with 13 degrees of freedom.
+
+### Predictions
+
+✓ right, ✗ wrong.
+
+1. The spread of the null slopes: about 0.18, because it depends on the noise
+   and the doses, not on the true slope ✓ — 0.182.
+2. The share of null fields with |slope| ≥ 0.4: 2 to 10 percent ✓, but computed
+   as 0.27% from the 3σ rule ✗ — 0.0292.
+3. The ties at ±0.40: both zero, neither counted ✗, from `==` — 14 and 17 with
+   `isclose` ✓; which one passes `>= 0.4` not answered.
+4. A million standard-normal draws beyond ±2.19: close to the count, because
+   both measure the distance in standard errors ✓ — 2.903%.
+5. What p = 0.029 says: sentence 2 ✓, with the reason that p is about the data
+   under no effect, not about how probable a hypothesis is ✓.
+6. Which deviations estimate σ on a real field: those from the fitted line ✓,
+   because the true line is not known ✓.
+7. The mean of SS(fit)/n over the null fields: "I don't know", then derived in
+   three smaller questions.
+8. The mean of SS(true)/n: between 0.95 and 1.05 ✓ — 1.0032; "pure noise" ✓,
+   the variance σ² = 1 missing.
+9. The fields where the fitted line has the smaller sum: all 10,000 ✓, because
+   it adapts both slope and intercept to the data ✓.
+10. The mean of SS(fit)/n, asked again: below 0.95 ✓ — 0.8710; the direction ✓,
+    the size missing.
+11. Why the gap is about 2: two parameters estimated, n − 2 = 13 ✓.
+12. The share with |t| ≥ 2.19: above 0.035 ✓ — 0.0463; a small s makes |t|
+    larger ✓, and t with 13 degrees of freedom has heavier tails ✓. Why a large
+    s does not cancel it: missing, then computed from t = z / s.
+13. p for t = 2.19 with 13 degrees of freedom: 0.0474 ✓.
+14. The share with |t| ≥ 2.19 on 75 plots: closer to 0.029 ✓ — 0.0317 in
+    theory; s more stable, thinner tails ✓.
+15. The standard deviation of s on 75 plots against 15: about two times smaller
+    ✓ — 2.34; as one over the square root of the degrees of freedom ✓.
+
+Hand computations: the gap from the two means, 1.984 ✓; s and the estimated
+standard error on seed 42, 0.8975 and 0.1639 ✓; t at z = 2 for s = 0.5 and
+s = 1.5, 4 and 1.33 ✓.
+
+### Open
+
+- The deliberate break, skipped. Its three candidates, each one changed line:
+  z's cut 1.960 used for t on fifteen plots; twenty fertilizers that do
+  nothing, each on its own field, and how many give p below 0.05 (multiple
+  testing, for 2.5 and 8.1); the same slope 0.4 on 75 plots, where p is tiny
+  and the effect is still 0.4 t/ha per dose (significant is not large).
+- The 5% cut as a rule is a convention someone chose, as c = 3 was in 1.6: a
+  threshold is a decision, not mathematics. Its name, α, when a step decides
+  with it, in 2.5 at the latest.
+- How likely the null world itself is needs a prior: 4.2a.
+- `scipy.stats.linregress` in 2.2 returns a p-value for the slope. It should be
+  this t with n − 2 degrees of freedom; 2.2 checks it.
+- On 75 plots the grid's step is an eighth of the standard error and moves a
+  count near a threshold. 2.2's closed form has no grid.
+- A figure of the 10,000 null slopes with the bell and both tails beyond ±0.4
+  shaded, drawn from his own numbers, if wanted.
